@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "데이터 소스 (비우면 저장소 변수 DATA_SOURCE, 그것도 없으면 sample)"
+        description: "데이터 소스 (비우면 저장소 변수 DATA_SOURCE, 그것도 없으면 live)"
         type: choice
         options: ["", "live", "sample"]
         default: ""
       backfill_days:
-        description: "live 모드에서 기록이 없는 과거 며칠을 채울지"
+        description: "원본(data/raw)이 없는 과거 며칠을 채울지"
         default: "0"
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
       - name: Collect prices and build index.html
         env:
           # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
-          DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'sample' }}
+          DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '0' }}
           ITEM_NAME: ${{ vars.ITEM_NAME }}
           SEARCH_NAME: ${{ vars.SEARCH_NAME }}

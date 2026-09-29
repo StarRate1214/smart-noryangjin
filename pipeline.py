@@ -1,20 +1,20 @@
 """노량진 수산시장 시세 수집 → 가성비 구간 계산 → 대화형 대시보드(index.html) 생성.
 
 실행:
-    python pipeline.py                       # 샘플 데이터(기본)
-    DATA_SOURCE=live python pipeline.py      # 노량진수산물도매시장 공식 홈페이지에서 수집
-    DATA_SOURCE=live BACKFILL_DAYS=30 python pipeline.py   # 비어 있는 과거 30일도 채움
+    python pipeline.py                       # 노량진수산물도매시장 공식 홈페이지에서 수집(기본)
+    BACKFILL_DAYS=30 python pipeline.py      # 원본이 없는 과거 30일도 채움
+    DATA_SOURCE=sample python pipeline.py    # 사이트 없이 샘플 데이터로 화면만 확인
 
 동작 순서:
     1. 소스에서 경매 최고가를 가져와 data/prices.csv 에 누적(같은 날짜는 덮어씀)
-       live 모드에서는 그날 받은 원본 표도 data/raw/YYYY-MM-DD.csv 로 남긴다.
+       live 모드에서는 받은 원본 표를 data/raw/YYYY-MM-DD.csv 로 남기고, 최고가는 이 원본에서 계산한다.
     2. 최근 WINDOW_DAYS 일만 잘라 70%/80% 목표가를 계산
     3. Plotly 차트를 포함한 index.html 을 저장소 루트에 생성(GitHub Pages 가 그대로 서빙)
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
     ITEM_NAME      화면에 표시할 품목명 (기본: 방어)
     SEARCH_NAME    공식 홈페이지 어종 검색어 (기본: 방어)
-    NAME_CONTAINS  응답 표의 어종명에 반드시 포함될 글자, 예: (활)
+    NAME_CONTAINS  어종명에 반드시 포함될 글자 (기본: (활), 즉 활어만. 선어까지 쓰려면 '방어')
     ITEM_SIZES     쉼표로 구분한 규격 목록, 예: 1미,2미. 비우면 모든 규격 중 최고가
     PACK_UNIT      이 포장 단위 행만 사용 (기본: kg, 즉 1kg당 가격)
     BACKFILL_DAYS  live 모드에서 기록이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
@@ -45,7 +45,7 @@ def _env_list(name):
 
 ITEM_NAME = os.environ.get("ITEM_NAME") or "방어"
 SEARCH_NAME = os.environ.get("SEARCH_NAME") or "방어"
-NAME_CONTAINS = os.environ.get("NAME_CONTAINS") or None
+NAME_CONTAINS = os.environ.get("NAME_CONTAINS") or "(활)"
 ITEM_SIZES = _env_list("ITEM_SIZES")
 PACK_UNIT = os.environ.get("PACK_UNIT") or "kg"
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
@@ -80,10 +80,9 @@ def sample_rows(dates):
     ]
 
 
-def live_rows(dates):
-    """공식 홈페이지에서 날짜별 최고 낙찰가를 가져온다. 휴장일(행 없음)은 건너뛴다."""
+def fetch_live(dates):
+    """공식 홈페이지에서 날짜별 원본 표를 받아 data/raw/YYYY-MM-DD.csv 로 저장한다."""
     session = noryangjin.new_session()
-    rows = []
     for i, date in enumerate(dates):
         if i:
             time.sleep(1)  # 서버 부하를 줄이기 위한 간격
@@ -98,18 +97,26 @@ def live_rows(dates):
         if table.empty:
             print(f"{date}: 경락 기록 없음(휴장일 등)")
             continue
-
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         table.to_csv(RAW_DIR / f"{date}.csv", index=False)
-
-        picked = noryangjin.select_rows(table, SEARCH_NAME, NAME_CONTAINS, ITEM_SIZES, PACK_UNIT)
-        price, unit = noryangjin.high_price(picked)
         same = noryangjin.select_rows(table, SEARCH_NAME)
         sizes = sorted(same["규격"].astype(str).unique()) if "규격" in same.columns else []
-        print(f"{date}: 전체 {len(table)}행, 선택 {len(picked)}행, 최고가 {price}, 단위 {unit}, 규격 {sizes}")
+        print(f"{date}: {SEARCH_NAME} {len(same)}행, 규격 {sizes}")
+
+
+def live_history():
+    """저장된 원본 표 전체에 현재 필터를 적용해 날짜별 최고가를 다시 계산한다.
+
+    원본을 기준으로 삼으므로 ITEM_SIZES 등 필터를 바꾸면 과거 기록도 같은 기준으로 바뀐다.
+    """
+    rows = []
+    for path in sorted(RAW_DIR.glob("*.csv")):
+        table = pd.read_csv(path)
+        picked = noryangjin.select_rows(table, SEARCH_NAME, NAME_CONTAINS, ITEM_SIZES, PACK_UNIT)
+        price, unit = noryangjin.high_price(picked)
         if price is not None:
-            rows.append({"Date": date.isoformat(), "Item": ITEM_NAME, "High_Price": price, "Unit": unit, "Source": "live"})
-    return rows
+            rows.append({"Date": path.stem, "Item": ITEM_NAME, "High_Price": price, "Unit": unit, "Source": "live"})
+    return pd.DataFrame(rows, columns=COLUMNS)
 
 
 def load_history():
@@ -119,30 +126,25 @@ def load_history():
     return pd.DataFrame(columns=COLUMNS)
 
 
-def dates_to_collect(history, source):
+def recent_dates(days):
     today = today_kst()
-    if source == "sample":
-        # 샘플 기록이 비어 있으면 차트가 비지 않도록 과거 WINDOW_DAYS 일을 함께 만든다.
-        days = WINDOW_DAYS if history.empty else 1
-    else:
-        days = max(BACKFILL_DAYS, 1)
-    known = set(history["Date"])
-    dates = [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
-    # 오늘은 항상 다시 받고, 과거 날짜는 기록이 없는 것만 받는다.
-    return [d for d in dates if d == today or d.isoformat() not in known]
+    return [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
 
 
 def update_history(source):
-    history = load_history()
-    if source != "sample":
-        # 실제 소스로 전환하면 샘플 기록은 섞이지 않게 버린다.
-        history = history[history["Source"] != "sample"]
-
-    dates = dates_to_collect(history, source)
-    rows = sample_rows(dates) if source == "sample" else live_rows(dates)
-    if rows:
-        new = pd.DataFrame(rows, columns=COLUMNS)
+    if source == "sample":
+        history = load_history()
+        history = history[history["Source"] == "sample"]
+        # 샘플 기록이 비어 있으면 차트가 비지 않도록 과거 WINDOW_DAYS 일을 함께 만든다.
+        new = pd.DataFrame(sample_rows(recent_dates(WINDOW_DAYS if history.empty else 1)), columns=COLUMNS)
         history = pd.concat([history[~history["Date"].isin(new["Date"])], new], ignore_index=True)
+    else:
+        # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 항상 다시 받고,
+        # 그보다 앞선 날짜는 원본이 없는 것만 받는다.
+        have = {p.stem for p in RAW_DIR.glob("*.csv")}
+        dates = recent_dates(max(BACKFILL_DAYS, 2))
+        fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + dates[-2:])
+        history = live_history()
 
     history = history.sort_values("Date").reset_index(drop=True)
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -299,7 +301,7 @@ def render_page(df, fig):
 
 
 def main():
-    source = os.environ.get("DATA_SOURCE") or "sample"
+    source = os.environ.get("DATA_SOURCE") or "live"
     if source not in ("sample", "live"):
         raise SystemExit(f"알 수 없는 DATA_SOURCE: {source} (가능: sample, live)")
 

@@ -14,4 +14,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q -r requirements.txt
-      - run: python scripts/probe_names.py
+      - run: PYTHONPATH=. python scripts/probe_names.py

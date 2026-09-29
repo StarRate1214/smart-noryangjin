@@ -7,77 +7,159 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <style>
   :root {
-    --bg: #fafafa; --panel: #fff; --line: #e5e5e5; --text: #1d1d1f; --muted: #666;
-    --accent: #1f7a45; --accent-soft: #e6f4ec; --star: #f5a623;
+    --navy: #3368A0; --sky: #66A3BF; --mint: #C8DFDB; --cream: #F2EFE7;
+    --text: #1f2d3d; --muted: #5f6b76; --line: #d9d4c7; --panel: #ffffff;
+    --up: #b4432f; --up-bg: #f6e3de; --down: #3368A0; --down-bg: #dce8f2;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
+  body { margin: 0; background: var(--cream); color: var(--text);
          font-family: Pretendard, "Noto Sans KR", -apple-system, sans-serif; }
-  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
-  h1 { font-size: 1.4rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: .9rem; margin: 0 0 16px; }
-  .notice { background: #fff4d6; border: 1px solid #f0d78c; border-radius: 8px;
+  header { background: var(--navy); color: #fff; }
+  .bar { max-width: 1100px; margin: 0 auto; padding: 14px 16px 0; }
+  .brand { font-size: 1.25rem; font-weight: 700; margin: 0 0 10px; }
+  .brand small { font-weight: 400; font-size: .8rem; opacity: .8; margin-left: 8px; }
+  nav { display: flex; gap: 4px; }
+  nav button { border: 0; background: transparent; color: #fff; opacity: .75; font: inherit;
+               font-size: .95rem; padding: 10px 16px; border-radius: 8px 8px 0 0; cursor: pointer; }
+  nav button[aria-selected="true"] { background: var(--cream); color: var(--navy); opacity: 1; font-weight: 700; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  .notice { background: #fff8e1; border: 1px solid #ecd9a0; border-radius: 8px;
             padding: 10px 14px; font-size: .9rem; margin-bottom: 16px; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-           padding: 12px 14px; margin-bottom: 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  h2 { font-size: 1.25rem; margin: 0; color: var(--navy); }
+
+  /* 주간 표 */
+  .week-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .week-head h2 { margin-right: auto; }
+  .pill { border-radius: 8px; padding: 7px 14px; font-size: .88rem; font-weight: 600; white-space: nowrap; }
+  .pill.now { background: var(--navy); color: #fff; }
+  .pill.cmp { background: var(--mint); color: var(--navy); }
+  .step { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
+          width: 34px; height: 34px; font-size: 1rem; cursor: pointer; }
+  .step:disabled { opacity: .35; cursor: default; }
+  .unit { color: var(--muted); font-size: .82rem; }
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; min-width: 720px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 12px; text-align: right; white-space: nowrap; font-size: .9rem; }
+  thead th { background: var(--navy); color: #fff; font-weight: 600; }
+  thead th.sum { color: var(--mint); }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:nth-child(odd) td { background: #fff; }
+  tbody tr:nth-child(even) td { background: #faf8f3; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: #eef5f4; }
+  td.zero { color: #b8b3a6; }
+  td.sum { color: var(--navy); font-weight: 700; }
+  tfoot td { background: var(--navy); color: #fff; font-weight: 700; }
+  .tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: .74rem;
+         font-weight: 600; vertical-align: 1px; }
+  .tag.k-자연산, .tag.k-국산 { background: var(--mint); color: var(--navy); }
+  .tag.k-양식, .tag.k-수입 { background: var(--sky); color: #fff; }
+  .delta { display: inline-block; min-width: 84px; text-align: center; padding: 2px 8px; border-radius: 6px;
+           font-size: .84rem; font-weight: 600; }
+  .delta.up { background: var(--up-bg); color: var(--up); }
+  .delta.down { background: var(--down-bg); color: var(--down); }
+  .delta.flat { background: var(--cream); color: var(--muted); }
+  tfoot .delta.up { background: transparent; color: #ffd3c8; }
+  tfoot .delta.down { background: transparent; color: var(--mint); }
+  .foot { color: var(--muted); font-size: .8rem; margin: 10px 2px 0; line-height: 1.5; }
+
+  /* 시세 차트 */
   .group { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }
   .group + .group { border-top: 1px dashed var(--line); }
   .group-label { flex: 0 0 44px; font-size: .82rem; color: var(--muted); padding-top: 7px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
-  .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line);
-          background: #fff; color: var(--text); border-radius: 999px; padding: 5px 12px;
-          font: inherit; font-size: .88rem; cursor: pointer; }
-  .chip:hover { border-color: #bbb; }
-  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent);
-                               color: var(--accent); font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: #fff;
+          color: var(--text); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: .88rem; cursor: pointer; }
+  .chip:hover { border-color: var(--sky); }
+  .chip[aria-pressed="true"] { background: var(--mint); border-color: var(--navy); color: var(--navy); font-weight: 600; }
   .chip .count { color: var(--muted); font-size: .75rem; font-weight: 400; }
   .chip.species { padding-left: 6px; }
-  .star { border: 0; background: none; padding: 0 2px; font-size: 1rem; line-height: 1;
-          color: #c8c8c8; cursor: pointer; }
-  .star.on { color: var(--star); }
+  .star { padding: 0 2px; font-size: 1rem; line-height: 1; color: #c9c4b6; cursor: pointer; }
+  .star.on { color: #e0a526; }
   .hint { font-size: .78rem; color: var(--muted); margin: 4px 0 0; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-           gap: 12px; margin-bottom: 12px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--sky);
+          border-radius: 12px; padding: 14px 16px; }
+  .card:first-child { border-top-color: var(--navy); }
+  .card:last-child { border-top-color: var(--mint); }
   .card .label { color: var(--muted); font-size: .82rem; }
-  .card .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; color: var(--navy); font-variant-numeric: tabular-nums; }
   .card .detail { color: var(--muted); font-size: .78rem; margin-top: 2px; }
-  .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-           padding: 8px; min-height: 420px; }
-  #plot { width: 100%; height: 420px; }
+  .chart-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .chart-head h2 { text-align: left; }
+  #plot { width: 100%; height: 520px; }
   .empty { padding: 60px 16px; text-align: center; color: var(--muted); }
-  footer { color: #888; font-size: .8rem; margin-top: 16px; }
-  footer a { color: inherit; }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 18px; }
+  footer a { color: var(--navy); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
+<header>
+  <div class="bar">
+    <p class="brand">스마트 노량진<small>노량진수산물도매시장 경락시세</small></p>
+    <nav role="tablist">
+      <button type="button" role="tab" id="tab-week" aria-selected="true" data-view="week">주간 경락량</button>
+      <button type="button" role="tab" id="tab-price" aria-selected="false" data-view="price">어종별 시세</button>
+    </nav>
+  </div>
+</header>
+
 <main>
-  <h1 id="title">노량진 경락시세</h1>
-  <p class="sub" id="subtitle"></p>
   <div class="notice" id="notice" hidden>현재 표시된 값은 화면 확인용 <b>샘플 데이터</b>입니다. 실제 시세가 아닙니다.</div>
 
-  <section class="panel" aria-label="필터">
-    <div class="group"><span class="group-label">어종</span><div class="chips" id="species"></div></div>
-    <div class="group"><span class="group-label">상태</span><div class="chips" id="states"></div></div>
-    <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
-    <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
-    <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격은 여러 개를 고를 수 있고, 숫자는 최근 거래 건수입니다. kg 단위 거래만 셉니다.</p>
+  <section id="view-week" role="tabpanel" aria-labelledby="tab-week">
+    <div class="panel">
+      <div class="week-head">
+        <h2>노량진 활어 경락량</h2>
+        <button type="button" class="step" id="weekPrev" aria-label="이전 5영업일">‹</button>
+        <span class="pill now" id="weekNow"></span>
+        <button type="button" class="step" id="weekNext" aria-label="다음 5영업일">›</button>
+        <span class="pill cmp" id="weekCmp"></span>
+        <span class="unit">단위: kg</span>
+      </div>
+      <div class="table-wrap"><table id="weekTable"></table></div>
+      <p class="foot">경락량은 공식 홈페이지 어종별 경락시세의 활어 낙찰 수량(포장 단위는 중량으로 환산)을 합한 값이라, 시장이 발표하는 입하량과는 조금 다릅니다.
+        비교 기준은 바로 앞 5영업일 합계입니다. 자연산·양식, 국산·수입은 산지로 나눴습니다(양식: 넙치 제주도, 참돔 일본·통영, 농어 중국 / 수입: 해외 산지).
+        행을 누르면 그 어종의 시세 차트로 이동합니다.</p>
+    </div>
   </section>
 
-  <div class="cards">
-    <div class="card"><div class="label" id="lastLabel">최근 경매 최고가</div><div class="value" id="lastHigh">-</div><div class="detail" id="lastDetail"></div></div>
-    <div class="card"><div class="label">가성비 매수 구간</div><div class="value" id="zone">-</div><div class="detail" id="zoneDetail"></div></div>
-    <div class="card"><div class="label" id="avgLabel">최고가 평균</div><div class="value" id="avgHigh">-</div><div class="detail" id="avgDetail"></div></div>
-  </div>
-  <div class="chart"><div id="plot"></div><div class="empty" id="empty" hidden>조건에 맞는 거래가 없습니다. 필터를 바꿔 보세요.</div></div>
+  <section id="view-price" role="tabpanel" aria-labelledby="tab-price" hidden>
+    <div class="panel" aria-label="필터">
+      <div class="group"><span class="group-label">어종</span><div class="chips" id="species"></div></div>
+      <div class="group"><span class="group-label">상태</span><div class="chips" id="states"></div></div>
+      <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
+      <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
+      <div class="group"><span class="group-label">기간</span><div class="chips" id="ranges"></div></div>
+      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격은 여러 개를 고를 수 있고, 숫자는 최근 거래 건수입니다. 고가는 kg 단위 거래 기준입니다.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="label" id="lastLabel">최근 경매 최고가</div><div class="value" id="lastHigh">-</div><div class="detail" id="lastDetail"></div></div>
+      <div class="card"><div class="label">가성비 매수 구간</div><div class="value" id="zone">-</div><div class="detail" id="zoneDetail"></div></div>
+      <div class="card"><div class="label" id="avgLabel">최고가 평균</div><div class="value" id="avgHigh">-</div><div class="detail" id="avgDetail"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="chart-head"><h2 id="chartTitle"></h2><span class="unit" id="chartSub"></span></div>
+      <div id="plot"></div>
+      <div class="empty" id="empty" hidden>조건에 맞는 거래가 없습니다. 필터를 바꿔 보세요.</div>
+    </div>
+  </section>
+
   <footer id="footer"></footer>
 </main>
 
 <script>
 const DATA = /*__DATA__*/null;
-const ROWS = DATA.rows.map((r) => Object.fromEntries(DATA.fields.map((f, i) => [f, r[i]])))
-  .filter((r) => (r.pack || "").toLowerCase() === "kg" && r.high > 0);
+const ALL = DATA.rows.map((r) => Object.fromEntries(DATA.fields.map((f, i) => [f, r[i]])));
+ALL.forEach((r) => { r.volume = (r.qty || 0) * (r.weight || 1); });
+const PRICED = (r) => (r.pack || "").toLowerCase() === "kg" && r.high > 0;
 const STATES = [["활", "활어"], ["선", "선어"], ["", "전체"]];
+const RANGES = [[14, "2주"], [DATA.window, `${DATA.window}일`]];
+const PALETTE = { navy: "#3368A0", sky: "#66A3BF", mint: "#C8DFDB", cream: "#F2EFE7" };
 
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
@@ -86,21 +168,150 @@ function load(key, fallback) {
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장 불가 환경 */ }
 }
-const won = (v) => Math.round(v).toLocaleString("ko-KR") + "원";
+const fmt = (v) => Math.round(v).toLocaleString("ko-KR");
+const won = (v) => fmt(v) + "원";
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+const toDate = (s) => new Date(s + "T00:00:00");
+const md = (s) => { const d = toDate(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const el = (tag, attrs = {}, text) => {
+  const n = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => (k === "class" ? (n.className = v) : n.setAttribute(k, v)));
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
 
-const available = DATA.species.filter((s) => ROWS.some((r) => r.species === s));
+/* ------------------------------------------------------------------ 탭 */
+function showView(name) {
+  document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === name));
+  document.getElementById("view-week").hidden = name !== "week";
+  document.getElementById("view-price").hidden = name !== "price";
+  save("nr.view", name);
+  if (name === "price") updatePrice();
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+
+/* ------------------------------------------------------------------ 주간 경락량 */
+const LIVE = ALL.filter((r) => r.state === "활");
+const TRADING_DAYS = [...new Set(LIVE.map((r) => r.date))].sort();
+const TABLE_ROWS = DATA.table.filter(([s]) => DATA.species.includes(s));
+const volumeIndex = new Map();
+LIVE.forEach((r) => {
+  const key = `${r.species}|${r.kind}|${r.date}`;
+  volumeIndex.set(key, (volumeIndex.get(key) || 0) + r.volume);
+});
+const volumeOf = (species, kind, date) => {
+  if (kind) return volumeIndex.get(`${species}|${kind}|${date}`) || 0;
+  // 구분이 없는 행은 그 어종의 모든 구분을 더한다
+  let sum = 0;
+  volumeIndex.forEach((v, k) => { if (k.startsWith(species + "|") && k.endsWith("|" + date)) sum += v; });
+  return sum;
+};
+let weekEnd = TRADING_DAYS.length - 1;
+
+function block(end) { return end < 0 ? [] : TRADING_DAYS.slice(Math.max(0, end - 4), end + 1); }
+
+function rangeLabel(days) {
+  if (!days.length) return "";
+  const a = toDate(days[0]), b = toDate(days[days.length - 1]);
+  const tail = a.getMonth() === b.getMonth() ? b.getDate() : md(days[days.length - 1]);
+  return `${md(days[0])}~${tail}`;
+}
+
+function deltaCell(diff, hasPrev) {
+  const td = el("td");
+  const span = el("span", { class: "delta" });
+  if (!hasPrev) { span.classList.add("flat"); span.textContent = "—"; }
+  else if (Math.round(diff) === 0) { span.classList.add("flat"); span.textContent = "0"; }
+  else { span.classList.add(diff > 0 ? "up" : "down"); span.textContent = (diff > 0 ? "+" : "−") + fmt(Math.abs(diff)); }
+  td.append(span);
+  return td;
+}
+
+function renderWeek() {
+  const days = block(weekEnd);
+  const prev = block(weekEnd - days.length);
+  const table = document.getElementById("weekTable");
+  table.replaceChildren();
+  document.getElementById("weekPrev").disabled = weekEnd - days.length < 0;
+  document.getElementById("weekNext").disabled = weekEnd >= TRADING_DAYS.length - 1;
+  if (!days.length) { table.append(el("caption", {}, "경락 기록이 없습니다.")); return; }
+
+  const start = toDate(days[0]);
+  document.getElementById("weekNow").textContent =
+    `${start.getMonth() + 1}월 ${Math.ceil(start.getDate() / 7)}주차 (${rangeLabel(days)})`;
+  document.getElementById("weekCmp").textContent =
+    prev.length ? `직전 ${prev.length}영업일 (${rangeLabel(prev)}) 비교` : "비교할 이전 기록 없음";
+
+  const head = el("tr");
+  head.append(el("th", {}, "어종"));
+  days.forEach((d) => head.append(el("th", {}, `${md(d)}(${WEEKDAY[toDate(d).getDay()]})`)));
+  head.append(el("th", { class: "sum" }, "합계"), el("th", {}, "전주 대비"));
+  table.appendChild(el("thead")).append(head);
+
+  const body = table.appendChild(el("tbody"));
+  const colTotals = days.map(() => 0);
+  let total = 0, prevTotal = 0;
+  TABLE_ROWS.forEach(([species, kind]) => {
+    const tr = el("tr", { title: `${species} 시세 보기` });
+    const name = el("td", {}, species);
+    if (kind) name.append(el("span", { class: `tag k-${kind}` }, kind));
+    tr.append(name);
+    let sum = 0;
+    days.forEach((d, i) => {
+      const v = volumeOf(species, kind, d);
+      sum += v; colTotals[i] += v;
+      tr.append(el("td", v ? {} : { class: "zero" }, fmt(v)));
+    });
+    const prevSum = prev.reduce((s, d) => s + volumeOf(species, kind, d), 0);
+    total += sum; prevTotal += prevSum;
+    tr.append(el("td", { class: "sum" }, fmt(sum)), deltaCell(sum - prevSum, prev.length > 0));
+    tr.addEventListener("click", () => openSpecies(species, kind));
+    body.append(tr);
+  });
+
+  const foot = el("tr");
+  foot.append(el("td", {}, "합계"));
+  colTotals.forEach((v) => foot.append(el("td", {}, fmt(v))));
+  foot.append(el("td", {}, fmt(total)), deltaCell(total - prevTotal, prev.length > 0));
+  table.appendChild(el("tfoot")).append(foot);
+}
+
+document.getElementById("weekPrev").addEventListener("click", () => { weekEnd -= block(weekEnd).length; renderWeek(); });
+document.getElementById("weekNext").addEventListener("click", () => {
+  weekEnd = Math.min(TRADING_DAYS.length - 1, weekEnd + 5); renderWeek();
+});
+
+/* ------------------------------------------------------------------ 어종별 시세 */
+const LATEST = ALL.reduce((m, r) => (r.date > m ? r.date : m), "");
+const available = DATA.species.filter((s) => ALL.some((r) => r.species === s));
 let favorites = load("nr.favorites", []).filter((s) => available.includes(s));
 const firstPick = favorites[0] || available[0];
-const saved = load("nr.species", firstPick);
+const savedSpecies = load("nr.species", firstPick);
 const view = {
-  species: available.includes(saved) ? saved : firstPick,
+  species: available.includes(savedSpecies) ? savedSpecies : firstPick,
   state: load("nr.state", "활"),
   origins: new Set(),
   sizes: new Set(),
+  range: load("nr.range", DATA.window),
 };
 
-function speciesRows() {
-  return ROWS.filter((r) => r.species === view.species && (!view.state || r.state === view.state));
+function openSpecies(species, kind) {
+  if (!available.includes(species)) return;
+  view.species = species; view.state = "활"; view.sizes.clear(); view.origins.clear();
+  // 자연산/양식 등 구분이 있는 행이면 그 구분에 해당하는 산지만 고른다
+  if (kind) ALL.forEach((r) => { if (r.species === species && r.kind === kind && r.state === "활") view.origins.add(r.origin); });
+  save("nr.species", species);
+  showView("price");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function baseRows() {
+  const since = shiftDate(LATEST, -(view.range - 1));
+  return ALL.filter((r) => r.species === view.species && (!view.state || r.state === view.state) && r.date >= since);
+}
+function shiftDate(s, n) {
+  const d = toDate(s); d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function countBy(rows, key) {
@@ -110,17 +321,8 @@ function countBy(rows, key) {
 }
 
 function chip(label, pressed, onClick, count) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "chip";
-  b.setAttribute("aria-pressed", pressed ? "true" : "false");
-  b.textContent = label;
-  if (count !== undefined) {
-    const c = document.createElement("span");
-    c.className = "count";
-    c.textContent = count;
-    b.append(c);
-  }
+  const b = el("button", { type: "button", class: "chip", "aria-pressed": pressed ? "true" : "false" }, label);
+  if (count !== undefined) b.append(el("span", { class: "count" }, String(count)));
   b.addEventListener("click", onClick);
   return b;
 }
@@ -128,19 +330,14 @@ function chip(label, pressed, onClick, count) {
 function renderSpecies() {
   const box = document.getElementById("species");
   box.replaceChildren();
-  const ordered = [...favorites, ...available.filter((s) => !favorites.includes(s))];
-  ordered.forEach((s) => {
+  [...favorites, ...available.filter((s) => !favorites.includes(s))].forEach((s) => {
     const isFav = favorites.includes(s);
     const b = chip(s, s === view.species, () => {
-      view.species = s; view.origins.clear(); view.sizes.clear();
-      save("nr.species", s); update();
+      view.species = s; view.origins.clear(); view.sizes.clear(); save("nr.species", s); updatePrice();
     });
     b.classList.add("species");
-    const star = document.createElement("span");
-    star.className = "star" + (isFav ? " on" : "");
-    star.textContent = isFav ? "★" : "☆";
-    star.setAttribute("role", "button");
-    star.setAttribute("aria-label", s + (isFav ? " 즐겨찾기 해제" : " 즐겨찾기"));
+    const star = el("span", { class: "star" + (isFav ? " on" : ""), role: "button",
+                              "aria-label": s + (isFav ? " 즐겨찾기 해제" : " 즐겨찾기") }, isFav ? "★" : "☆");
     star.addEventListener("click", (e) => {
       e.stopPropagation();
       favorites = isFav ? favorites.filter((x) => x !== s) : [...favorites, s];
@@ -154,37 +351,41 @@ function renderSpecies() {
 function renderMulti(boxId, options, selected) {
   const box = document.getElementById(boxId);
   box.replaceChildren();
-  // 더 이상 없는 값은 선택에서 뺀다
   [...selected].forEach((v) => { if (!options.some(([o]) => o === v)) selected.delete(v); });
-  box.append(chip("전체", selected.size === 0, () => { selected.clear(); update(); }));
-  options.forEach(([value, count]) => {
-    box.append(chip(value, selected.has(value), () => {
-      selected.has(value) ? selected.delete(value) : selected.add(value); update();
-    }, count));
-  });
+  box.append(chip("전체", selected.size === 0, () => { selected.clear(); updatePrice(); }));
+  options.forEach(([value, count]) => box.append(chip(value, selected.has(value), () => {
+    selected.has(value) ? selected.delete(value) : selected.add(value); updatePrice();
+  }, count)));
 }
 
 function renderFilters() {
   const states = document.getElementById("states");
   states.replaceChildren();
   STATES.forEach(([value, label]) => {
-    const n = ROWS.filter((r) => r.species === view.species && (!value || r.state === value)).length;
-    states.append(chip(label, view.state === value, () => {
-      view.state = value; save("nr.state", value); update();
-    }, n));
+    const n = ALL.filter((r) => r.species === view.species && (!value || r.state === value)).length;
+    states.append(chip(label, view.state === value, () => { view.state = value; save("nr.state", value); updatePrice(); }, n));
   });
-  const base = speciesRows();
+  const base = baseRows();
   renderMulti("origins", countBy(base, "origin"), view.origins);
-  const byOrigin = base.filter((r) => !view.origins.size || view.origins.has(r.origin));
-  renderMulti("sizes", countBy(byOrigin, "size"), view.sizes);
+  renderMulti("sizes", countBy(base.filter((r) => !view.origins.size || view.origins.has(r.origin)), "size"), view.sizes);
+  const ranges = document.getElementById("ranges");
+  ranges.replaceChildren();
+  RANGES.forEach(([days, label]) => ranges.append(chip(label, view.range === days, () => {
+    view.range = days; save("nr.range", days); updatePrice();
+  })));
 }
 
-function dailyHighs() {
-  const best = new Map();
-  speciesRows()
-    .filter((r) => (!view.origins.size || view.origins.has(r.origin)) && (!view.sizes.size || view.sizes.has(r.size)))
-    .forEach((r) => { const cur = best.get(r.date); if (!cur || r.high > cur.high) best.set(r.date, r); });
-  return [...best.values()].sort((a, b) => a.date.localeCompare(b.date));
+function dailySeries() {
+  const rows = baseRows().filter((r) => (!view.origins.size || view.origins.has(r.origin))
+                                    && (!view.sizes.size || view.sizes.has(r.size)));
+  const byDate = new Map();
+  rows.forEach((r) => {
+    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null };
+    d.volume += r.volume;
+    if (PRICED(r) && (!d.top || r.high > d.top.high)) d.top = r;
+    byDate.set(r.date, d);
+  });
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function renderChart(days) {
@@ -193,66 +394,82 @@ function renderChart(days) {
   plot.hidden = !days.length;
   empty.hidden = !!days.length;
   if (!days.length) { Plotly.purge(plot); return; }
-  const x = days.map((d) => d.date);
-  const high = days.map((d) => d.high);
-  const hover = "%{y:,.0f}원<extra></extra>";
+  const x = days.map((d) => md(d.date));
+  const high = days.map((d) => (d.top ? d.top.high : null));
+  const showText = days.length <= 16;
+  const band = (ratio) => high.map((v) => (v === null ? null : Math.round(v * ratio)));
   Plotly.react(plot, [
-    { x, y: high, name: "당일 경매 최고가 (100%)", mode: "lines+markers",
-      line: { color: "#e0443e", width: 2.5 },
-      customdata: days.map((d) => [d.origin, d.size, d.qty]),
-      hovertemplate: "%{y:,.0f}원 (%{customdata[0]} %{customdata[1]})<extra></extra>" },
-    { x, y: high.map((v) => Math.round(v * DATA.upper)), name: `가성비 상한선 (${DATA.upper * 100}%)`,
-      mode: "lines", line: { color: "#2e9e5b", width: 1.5, dash: "dash" }, hovertemplate: hover },
-    { x, y: high.map((v) => Math.round(v * DATA.lower)), name: `가성비 하한선 (${DATA.lower * 100}%)`,
-      mode: "lines", line: { color: "#1f7a45", width: 1.5, dash: "dash" },
-      fill: "tonexty", fillcolor: "rgba(46, 158, 91, 0.15)", hovertemplate: hover },
+    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", line: { color: PALETTE.sky, width: 1, dash: "dot" },
+      showlegend: false, hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>`, connectgaps: true },
+    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
+      line: { color: PALETTE.sky, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: "rgba(200, 223, 219, 0.6)",
+      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>`, connectgaps: true },
+    { x, y: high, yaxis: "y", name: "고가", mode: showText ? "lines+markers+text" : "lines+markers",
+      line: { color: PALETTE.navy, width: 3 }, marker: { size: 8, color: PALETTE.navy, line: { color: "#fff", width: 2 } },
+      text: high.map((v) => (v === null ? "" : fmt(v))), textposition: "top center",
+      textfont: { color: PALETTE.navy, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
+      customdata: days.map((d) => (d.top ? `${d.top.origin} ${d.top.size}` : "")),
+      hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>", connectgaps: true },
+    { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량",
+      marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
+      textposition: "outside", textfont: { color: PALETTE.navy, size: 11 }, cliponaxis: false,
+      hovertemplate: "경락량 %{y:,.0f}kg<extra></extra>" },
   ], {
     hovermode: "x unified", paper_bgcolor: "#fff", plot_bgcolor: "#fff",
-    margin: { l: 60, r: 16, t: 36, b: 44 },
+    margin: { l: 64, r: 16, t: 40, b: 40 },
     legend: { orientation: "h", traceorder: "normal", yanchor: "bottom", y: 1.02, xanchor: "center", x: 0.5 },
-    xaxis: { tickformat: "%m/%d", hoverformat: "%Y-%m-%d", type: "date", gridcolor: "#eee" },
-    yaxis: { tickformat: ",.0f", title: { text: "단가 (원 / kg)" }, gridcolor: "#eee" },
-    font: { family: "Pretendard, 'Noto Sans KR', sans-serif" },
+    xaxis: { type: "category", anchor: "y2", tickfont: { color: "#5f6b76" }, showgrid: false },
+    yaxis: { domain: [0.36, 1], tickformat: ",.0f", title: { text: "원 / kg" }, gridcolor: "#eee",
+             zeroline: false, rangemode: "normal" },
+    yaxis2: { domain: [0, 0.26], tickformat: ",.0f", title: { text: "kg" }, gridcolor: "#f3f3f3",
+              rangemode: "tozero" },
+    font: { family: "Pretendard, 'Noto Sans KR', sans-serif", color: "#1f2d3d" },
   }, { displayModeBar: false, responsive: true });
 }
 
 function renderCards(days) {
   const set = (id, text) => { document.getElementById(id).textContent = text; };
-  if (!days.length) {
+  const priced = days.filter((d) => d.top);
+  if (!priced.length) {
     ["lastHigh", "zone", "avgHigh"].forEach((id) => set(id, "-"));
     ["lastDetail", "zoneDetail", "avgDetail"].forEach((id) => set(id, ""));
     return;
   }
-  const last = days[days.length - 1];
-  set("lastLabel", `최근 경매 최고가 (${last.date.slice(5).replace("-", "/")})`);
-  set("lastHigh", won(last.high));
-  set("lastDetail", [last.origin, last.size].filter(Boolean).join(" · "));
-  set("zone", `${won(last.high * DATA.lower).replace("원", "")}~${won(last.high * DATA.upper)}`);
+  const last = priced[priced.length - 1];
+  const highs = priced.map((d) => d.top.high);
+  set("lastLabel", `최근 경매 최고가 (${md(last.date)})`);
+  set("lastHigh", won(last.top.high));
+  set("lastDetail", [last.top.origin, last.top.size].filter(Boolean).join(" · "));
+  set("zone", `${fmt(last.top.high * DATA.lower)}~${won(last.top.high * DATA.upper)}`);
   set("zoneDetail", `최고가의 ${DATA.lower * 100}~${DATA.upper * 100}%`);
-  set("avgLabel", `최고가 평균 (${days.length}일)`);
-  set("avgHigh", won(days.reduce((s, d) => s + d.high, 0) / days.length));
-  set("avgDetail", `최저 ${won(Math.min(...days.map((d) => d.high)))} · 최고 ${won(Math.max(...days.map((d) => d.high)))}`);
+  set("avgLabel", `최고가 평균 (${priced.length}일)`);
+  set("avgHigh", won(highs.reduce((s, v) => s + v, 0) / highs.length));
+  set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);
 }
 
-function update() {
+function updatePrice() {
+  if (!available.length) return;
   renderSpecies();
   renderFilters();
-  const days = dailyHighs();
+  const days = dailySeries();
+  const latest = days.length ? toDate(days[days.length - 1].date) : new Date();
+  const where = view.origins.size ? [...view.origins].join("/") + " " : "";
   const stateLabel = STATES.find(([v]) => v === view.state)[1];
-  document.getElementById("title").textContent = `노량진 ${view.species} 최근 ${DATA.window}일 시세`;
-  document.getElementById("subtitle").textContent =
-    `${stateLabel} · 날짜별 경매 최고가와 고가 대비 ${DATA.lower * 100}~${DATA.upper * 100}% 가성비 매수 구간`;
+  document.getElementById("chartTitle").textContent =
+    `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${view.species} 시세`;
+  document.getElementById("chartSub").textContent = `${stateLabel} · 고가(원/kg)와 경락량(kg)`;
   renderCards(days);
   renderChart(days);
 }
 
+/* ------------------------------------------------------------------ 시작 */
 document.getElementById("notice").hidden = !DATA.sample;
 document.getElementById("footer").innerHTML =
-  `마지막 갱신: ${DATA.updated} (KST) · 단가는 1kg 기준 · 출처: ` +
+  `마지막 갱신: ${DATA.updated} (KST) · 매일 07:00 자동 수집 · 출처: ` +
   (DATA.sample ? "샘플 데이터"
     : '<a href="https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130">노량진수산물도매시장 어종별 경락시세</a>');
-if (available.length) update();
-else document.getElementById("empty").hidden = false;
+renderWeek();
+showView(load("nr.view", "week") === "price" ? "price" : "week");
 </script>
 </body>
 </html>

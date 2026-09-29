@@ -26,7 +26,6 @@ USER_AGENT = (
 HIGH_COLUMNS = ["낙찰고가", "최고가", "고가"]
 NUMERIC_COLUMNS = ["수량", "낙찰고가", "낙찰저가", "평균가", "최고가", "최저가", "고가", "저가"]
 NAME_COLUMNS = ["어종", "어종명", "품목", "품목명", "품명"]
-UNIT_COLUMNS = ["포장", "단위"]
 
 
 class FetchError(RuntimeError):
@@ -127,40 +126,10 @@ def _clean(df):
     return df.reset_index(drop=True)
 
 
-def species_name(value):
-    """'(활)방어' -> '방어'. 앞에 붙은 상태 표기(활/선/냉 등)를 뗀다."""
-    return re.sub(r"^\s*\([^)]*\)\s*", "", str(value)).strip()
-
-
-def select_rows(df, species=None, name_contains=None, sizes=None, pack=None):
-    """어종·상태·규격·포장 단위로 행을 거른다. 해당 열이 없으면 그 조건은 건너뛴다.
-
-    species 는 상태 표기를 뗀 이름과 정확히 같아야 한다('방어' 검색에 '잿방어'가 섞여 오기 때문).
-    """
-    if df.empty:
-        return df
-    name_col = next((c for c in NAME_COLUMNS if c in df.columns), None)
-    if name_col and species:
-        df = df[df[name_col].map(species_name) == species]
-    if name_col and name_contains:
-        df = df[df[name_col].astype(str).str.contains(name_contains, regex=False)]
-    if sizes and "규격" in df.columns:
-        df = df[df["규격"].astype(str).str.strip().isin(sizes)]
-    unit_col = next((c for c in UNIT_COLUMNS if c in df.columns), None)
-    if pack and unit_col:
-        df = df[df[unit_col].astype(str).str.strip().str.lower() == pack.lower()]
-    return df
-
-
-def high_price(df):
-    """행들 중 최고 낙찰가와 그 행의 단위를 돌려준다. 행이 없으면 (None, None)."""
-    if df.empty:
-        return None, None
-    high_col = next(c for c in HIGH_COLUMNS if c in df.columns)
-    top = df.loc[df[high_col].idxmax()]
-    unit_col = next((c for c in UNIT_COLUMNS if c in df.columns), None)
-    unit = str(top[unit_col]).strip() if unit_col else None
-    return int(top[high_col]), unit
+def split_name(value):
+    """'(활)방어' -> ('활', '방어'). 상태 표기(활/선/냉 등)가 없으면 상태는 ''."""
+    m = re.match(r"^\s*\(([^)]*)\)\s*(.*)$", str(value))
+    return (m.group(1).strip(), m.group(2).strip()) if m else ("", str(value).strip())
 
 
 def fetch_day(session, species, date, retries=3):

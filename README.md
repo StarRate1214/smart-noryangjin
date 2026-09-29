@@ -6,6 +6,7 @@
 
 | 파일 | 역할 |
 |------|------|
+| `noryangjin.py` | 공식 홈페이지 어종별 경락시세 수집·해석 |
 | `pipeline.py` | 수집 → `data/prices.csv` 누적 → 70/80% 목표가 계산 → `index.html` 생성 |
 | `data/prices.csv` | 일별 경매 최고가 기록(같은 날짜는 덮어씀) |
 | `index.html` | GitHub Pages가 서빙하는 대시보드 |
@@ -23,11 +24,27 @@ python pipeline.py          # 샘플 데이터로 index.html 생성
 1. 저장소 **Settings → Pages → Build and deployment**에서 Source를 `Deploy from a branch`, Branch를 `main` / `(root)`로 저장합니다.
 2. **Actions** 탭에서 `Update market dashboard` 워크플로를 한 번 수동 실행(`Run workflow`)하면 이후 매일 07:00 KST에 갱신됩니다.
 
-## 실제 시세 연결
+## 실제 시세 연결 (노량진수산물도매시장 공식 홈페이지)
 
-현재 `fetch_live()`는 비어 있고 기본 소스는 결정적 샘플 데이터입니다(페이지 상단에 샘플 안내가 표시됩니다). 실제 수집으로 바꾸려면 다음 순서를 따릅니다.
+`noryangjin.py`는 공식 홈페이지 **수산물가격정보 → 어종별경락시세**(`/nsis/miw/ko/info/miw3130`) 화면의 엑셀 다운로드 요청을 그대로 재현합니다.
 
-1. `pipeline.py`의 `fetch_live(date)`에서 노량진수산물도매시장 또는 인어교주해적단의 해당 일자 1kg당 경매 최고가를 정수로 반환하도록 구현합니다. 휴장일처럼 값이 없으면 `None`을 반환합니다.
-2. **Settings → Secrets and variables → Actions → Variables**에 `DATA_SOURCE=live`를 추가합니다.
+1. 화면(`miw3130`)을 GET 해서 세션 쿠키를 받습니다.
+2. `excel/miw3130`에 어종명(`kdfshNm`)과 조회일(`searchStartDe`, `searchEndDe`, `YYYY.MM.DD`)을 POST 합니다.
+3. 받은 파일(.xls/.xlsx 또는 HTML 표)에서 `낙찰고가` 열을 찾아 숫자로 바꾸고, 어종명·규격 조건으로 거른 뒤 최고값을 그날의 최고가로 씁니다.
+4. 원본 표는 `data/raw/YYYY-MM-DD.csv`에 남기고, 해석에 실패한 응답은 워크플로 아티팩트 `debug-response`로 올립니다.
 
-`live`로 전환하면 기존 샘플 기록은 자동으로 제외되고 실제 수집값만 누적됩니다. 품목명·기간·비율은 `pipeline.py` 상단의 `ITEM_NAME`, `WINDOW_DAYS`, `LOWER_RATIO`, `UPPER_RATIO`로 조정합니다.
+### 켜는 방법
+
+저장소 **Settings → Secrets and variables → Actions → Variables**에 아래 값을 넣습니다. `DATA_SOURCE`만 필수입니다.
+
+| 변수 | 예시 | 의미 |
+|------|------|------|
+| `DATA_SOURCE` | `live` | 공식 홈페이지에서 수집 |
+| `ITEM_NAME` | `방어` | 화면에 표시할 이름 |
+| `SEARCH_NAME` | `방어` | 홈페이지 어종 검색어 |
+| `NAME_CONTAINS` | `(활)` | 어종명에 이 글자가 들어간 행만 사용 |
+| `ITEM_SIZES` | `소,중` | 이 규격만 사용(비우면 전체 규격 중 최고가) |
+
+처음 한 번은 **Actions → Update market dashboard → Run workflow**에서 `source=live`, `backfill_days=30`으로 실행해 지난 30일을 채웁니다. 실행 로그에 날짜별 규격 목록과 단위가 찍히므로, 그 값을 보고 `ITEM_SIZES`를 정하면 됩니다.
+
+`live`로 전환하면 기존 샘플 기록은 자동으로 제외됩니다. 기간·비율은 `pipeline.py` 상단의 `WINDOW_DAYS`, `LOWER_RATIO`, `UPPER_RATIO`로 조정합니다.

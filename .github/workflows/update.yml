@@ -5,6 +5,15 @@ on:
     # 매일 07:00 KST (= 22:00 UTC 전날)
     - cron: "0 22 * * *"
   workflow_dispatch:
+    inputs:
+      source:
+        description: "데이터 소스 (비우면 저장소 변수 DATA_SOURCE, 그것도 없으면 sample)"
+        type: choice
+        options: ["", "live", "sample"]
+        default: ""
+      backfill_days:
+        description: "live 모드에서 기록이 없는 과거 며칠을 채울지"
+        default: "0"
 
 permissions:
   contents: write
@@ -28,14 +37,27 @@ jobs:
 
       - name: Collect prices and build index.html
         env:
-          # 저장소 Settings > Secrets and variables > Actions > Variables 에서 DATA_SOURCE=live 로 전환
-          DATA_SOURCE: ${{ vars.DATA_SOURCE || 'sample' }}
+          # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
+          DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'sample' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '0' }}
+          ITEM_NAME: ${{ vars.ITEM_NAME }}
+          SEARCH_NAME: ${{ vars.SEARCH_NAME }}
+          NAME_CONTAINS: ${{ vars.NAME_CONTAINS }}
+          ITEM_SIZES: ${{ vars.ITEM_SIZES }}
         run: python pipeline.py
+
+      - name: Upload unparsed response
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-response
+          path: debug/
+          if-no-files-found: ignore
 
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/prices.csv index.html
+          git add data index.html
           git diff --cached --quiet || git commit -m "chore: update market data $(TZ=Asia/Seoul date +%F)"
           git push

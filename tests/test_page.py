@@ -153,3 +153,39 @@ def test_no_horizontal_scroll_on_phone(page):
     for tab in ("#tab-week", "#tab-price"):
         page.click(tab)
         assert page.evaluate("document.documentElement.scrollWidth") <= 390
+
+
+def trace_field(page, field):
+    """차트의 각 트레이스 이름(상한선은 이름이 없어 '상한')별로 field 값을 돌려준다."""
+    script = "f => Object.fromEntries(document.getElementById('plot').data.map(t => [t.name || '상한', t[f]]))"
+    return page.evaluate(script, field)
+
+
+def trace_visibility(page):
+    return trace_field(page, "visible")
+
+
+def test_chart_draws_high_avg_low_and_band(page):
+    page.click("#tab-price")
+    names = [n for n in trace_visibility(page)]
+    for expected in ("고가", "평균가", "저가", "경락량"):
+        assert expected in names
+    assert any(n.startswith("가성비 구간") for n in names)
+    ys = trace_field(page, "y")
+    for high, avg, low in zip(ys["고가"], ys["평균가"], ys["저가"]):
+        if None not in (high, avg, low):
+            assert low <= avg <= high
+
+
+def test_series_checkboxes_hide_traces_and_persist(page):
+    page.click("#tab-price")
+    page.uncheck('#series input[data-series="low"]')
+    page.uncheck('#series input[data-series="volume"]')
+    shown = trace_visibility(page)
+    assert shown["저가"] is False and shown["경락량"] is False
+    assert shown["고가"] is True and shown["평균가"] is True
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-price")
+    assert not page.is_checked('#series input[data-series="low"]')
+    assert trace_visibility(page)["저가"] is False

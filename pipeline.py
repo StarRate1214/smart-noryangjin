@@ -6,13 +6,13 @@
     DATA_SOURCE=sample python pipeline.py    # 사이트 접속 없이 샘플 데이터로 화면만 확인
 
 동작 순서:
-    1. SPECIES 의 어종마다 공식 홈페이지 경락 표를 받아 data/raw/<어종>/YYYY-MM-DD.csv 로 저장
+    1. 날짜마다 어종명을 비워 요청해 그날 거래된 모든 어종의 경락 표를 받아
+       data/daily/YYYY-MM-DD.csv 로 저장한다(하루 1회 요청)
     2. 최근 WINDOW_DAYS 일 원본 행을 index.html 에 JSON 으로 넣는다
-    3. 어종 선택, 상태·산지·규격 필터, 즐겨찾기, 날짜별 최고가와 70~80% 구간 계산은
-       페이지의 스크립트(templates/dashboard.html)가 브라우저에서 처리한다
+    3. 어종 선택·검색, 상태·산지·규격 필터(포함/제외), 즐겨찾기, 날짜별 고가·평균가·저가와
+       70~80% 구간 계산은 페이지의 스크립트(templates/dashboard.html)가 브라우저에서 처리한다
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
-    SPECIES        쉼표로 구분한 어종 목록. 앞에 둔 어종이 기본 선택 (기본: DEFAULT_SPECIES)
     BACKFILL_DAYS  원본이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
     DATA_SOURCE    live(기본) 또는 sample
 """
@@ -29,28 +29,16 @@ import pandas as pd
 import noryangjin
 
 ROOT = Path(__file__).resolve().parent
-RAW_DIR = ROOT / "data" / "raw"
+DAILY_DIR = ROOT / "data" / "daily"
 DEBUG_DIR = ROOT / "debug"
 TEMPLATE_FILE = ROOT / "templates" / "dashboard.html"
 OUTPUT_FILE = ROOT / "index.html"
 
-# 이미지(주간 입하 표, 킹크랩 시세)에 나오는 어종 + 기존 수집 어종. 앞의 어종이 기본 선택
-DEFAULT_SPECIES = [
-    "넙치", "농어", "참돔", "숭어", "부시리", "도다리", "능성어", "방어", "잿방어",
-    "흑점줄전갱이", "민어", "벤자리", "감성돔", "돌돔", "황전어", "참숭어", "우럭", "킹크랩",
-]
-SPECIES = [s.strip() for s in os.environ.get("SPECIES", "").split(",") if s.strip()] or DEFAULT_SPECIES
+# 공식 표기와 흔히 쓰는 이름이 다른 어종. 2026-09 조사에서 빈 검색어로 받은 전체 어종 목록(172종)과
+# 공개 입하 통계 수치를 대조해 정했다. 데이터는 공식 표기(왼쪽)로 다루고, 화면에는 오른쪽 이름을 함께 보인다.
+LABELS = {"감숭어": "숭어", "줄돔": "돌돔", "전어": "황전어", "왕게": "킹크랩"}
 
-# 화면 표기와 공식 홈페이지 표기가 다른 어종. 2026-09 조사에서 빈 검색어로 받은 전체 어종 목록(172종)과
-# 입하 통계 수치를 대조해 정했다. 표에는 왼쪽 이름으로 보이고, 검색·어종 일치는 오른쪽 이름으로 한다.
-ALIASES = {"숭어": "감숭어", "돌돔": "줄돔", "황전어": "전어", "킹크랩": "왕게"}
-
-
-def search_name(species):
-    return ALIASES.get(species, species)
-
-
-# 원본에는 자연산/양식, 국산/수입 구분이 없어 산지로 나눈다.
+# 원본에는 자연산/양식, 국산/수입 구분이 없어 산지로 나눈다(공식 표기 기준).
 # 2026년 9월 18~22일 공개 입하 통계와 산지별 경락 수량을 대조해 정한 기준이다.
 FOREIGN = ["일본", "중국", "대만", "러시아", "노르웨이", "미국", "캐나다", "베트남", "호주", "칠레"]
 KIND_RULES = {
@@ -58,17 +46,21 @@ KIND_RULES = {
     "참돔": ("자연산", {"양식": ["일본", "통영"]}),
     "농어": ("자연산", {"양식": ["중국"]}),
     "감성돔": ("국산", {"수입": FOREIGN}),
-    "돌돔": ("국산", {"수입": FOREIGN}),
+    "줄돔": ("국산", {"수입": FOREIGN}),
 }
 
-# 주간 경락량 표의 행 순서: (어종, 구분)
+# 주간 경락량 표의 행: (화면 이름, 공식 표기, 구분). 이 순서가 어종 목록의 앞쪽 순서도 된다.
 TABLE_ROWS = [
-    ("넙치", "자연산"), ("넙치", "양식"), ("농어", "자연산"), ("농어", "양식"),
-    ("참돔", "자연산"), ("참돔", "양식"), ("숭어", ""), ("부시리", ""), ("도다리", ""),
-    ("능성어", ""), ("방어", ""), ("잿방어", ""), ("흑점줄전갱이", ""), ("민어", ""),
-    ("벤자리", ""), ("감성돔", "국산"), ("돌돔", "국산"), ("돌돔", "수입"), ("황전어", ""),
-    ("참숭어", ""), ("우럭", ""),
+    ("넙치", "넙치", "자연산"), ("넙치", "넙치", "양식"), ("농어", "농어", "자연산"), ("농어", "농어", "양식"),
+    ("참돔", "참돔", "자연산"), ("참돔", "참돔", "양식"), ("숭어", "감숭어", ""), ("부시리", "부시리", ""),
+    ("도다리", "도다리", ""), ("능성어", "능성어", ""), ("방어", "방어", ""), ("잿방어", "잿방어", ""),
+    ("흑점줄전갱이", "흑점줄전갱이", ""), ("민어", "민어", ""), ("벤자리", "벤자리", ""),
+    ("감성돔", "감성돔", "국산"), ("돌돔", "줄돔", "국산"), ("돌돔", "줄돔", "수입"), ("황전어", "전어", ""),
+    ("참숭어", "참숭어", ""), ("우럭", "우럭", ""),
 ]
+# 표에는 없지만 목록 앞쪽에 두는 어종
+EXTRA_PRIORITY = ["왕게"]
+
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 
 WINDOW_DAYS = 30
@@ -90,46 +82,48 @@ def recent_dates(days):
     return [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
 
 
+def priority_species():
+    order = []
+    for _, official, _ in TABLE_ROWS:
+        if official not in order:
+            order.append(official)
+    return order + [s for s in EXTRA_PRIORITY if s not in order]
+
+
 # ---------------------------------------------------------------------------
 # 1. 수집
 # ---------------------------------------------------------------------------
 
 
-def fetch_live(dates_by_species):
-    """어종·날짜별 원본 표를 받아 data/raw/<어종>/YYYY-MM-DD.csv 로 저장한다."""
+def fetch_live(dates):
+    """날짜별로 전체 어종 경락 표를 받아 data/daily/YYYY-MM-DD.csv 로 저장한다."""
     session = noryangjin.new_session()
-    first = True
-    for species, dates in dates_by_species.items():
-        for date in dates:
-            if not first:
-                time.sleep(1)  # 서버 부하를 줄이기 위한 간격
-            first = False
-            try:
-                table = noryangjin.fetch_day(session, search_name(species), date)
-            except noryangjin.FetchError as exc:
-                if exc.content is not None:
-                    DEBUG_DIR.mkdir(exist_ok=True)
-                    (DEBUG_DIR / f"{species}-{date}.bin").write_bytes(exc.content)
-                raise SystemExit(f"{species} {date}: {exc}")
+    for i, date in enumerate(dates):
+        if i:
+            time.sleep(1)  # 서버 부하를 줄이기 위한 간격
+        try:
+            table = noryangjin.fetch_day(session, "", date)
+        except noryangjin.FetchError as exc:
+            if exc.content is not None:
+                DEBUG_DIR.mkdir(exist_ok=True)
+                (DEBUG_DIR / f"{date}.bin").write_bytes(exc.content)
+            raise SystemExit(f"{date}: {exc}")
 
-            if table.empty:
-                print(f"{species} {date}: 경락 기록 없음(휴장일 등)")
-                continue
-            folder = RAW_DIR / species
-            folder.mkdir(parents=True, exist_ok=True)
-            table.to_csv(folder / f"{date}.csv", index=False)
-            print(f"{species} {date}: {len(table)}행")
+        if table.empty:
+            print(f"{date}: 경락 기록 없음(휴장일 등)")
+            continue
+        DAILY_DIR.mkdir(parents=True, exist_ok=True)
+        table.to_csv(DAILY_DIR / f"{date}.csv", index=False)
+        names = {noryangjin.split_name(v)[1] for v in table.get("어종", [])}
+        print(f"{date}: {len(table)}행, {len(names)}종")
 
 
 def collect_live():
     # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 항상 다시 받고,
     # 그보다 앞선 날짜는 원본이 없는 것만 받는다.
     dates = recent_dates(max(BACKFILL_DAYS, 2))
-    plan = {}
-    for species in SPECIES:
-        have = {p.stem for p in (RAW_DIR / species).glob("*.csv")}
-        plan[species] = [d for d in dates[:-2] if d.isoformat() not in have] + dates[-2:]
-    fetch_live(plan)
+    have = {p.stem for p in DAILY_DIR.glob("*.csv")}
+    fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + dates[-2:])
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +144,8 @@ def kind_of(species, origin):
     return next((label for label, origins in rules.items() if origin in origins), default)
 
 
-def table_rows(species, date, table):
-    """원본 표를 페이지용 행으로 바꾼다.
-
-    이름이 검색어와 정확히 같은 어종만 남긴다('방어' 검색에 섞여 오는 '잿방어' 제외).
-    행의 species 에는 화면 표기(예: 킹크랩)를 넣는다.
-    """
+def table_rows(date, table):
+    """원본 표의 모든 행을 페이지용 행으로 바꾼다. species 는 상태 표기를 뗀 공식 표기다."""
     name_col = next((c for c in noryangjin.NAME_COLUMNS if c in table.columns), None)
     high_col = next((c for c in noryangjin.HIGH_COLUMNS if c in table.columns), None)
     if name_col is None or high_col is None:
@@ -163,8 +153,8 @@ def table_rows(species, date, table):
     pack_col = "포장" if "포장" in table.columns else "단위"
     rows = []
     for rec in table.to_dict("records"):
-        state, name = noryangjin.split_name(rec[name_col])
-        if name != search_name(species):
+        state, species = noryangjin.split_name(rec[name_col])
+        if not species:
             continue
         origin = _text(rec.get("산지"))
         weight = _num(rec.get("중량"))
@@ -190,19 +180,28 @@ def table_rows(species, date, table):
 def live_rows():
     cutoff = recent_dates(WINDOW_DAYS)[0].isoformat()
     rows = []
-    for species in SPECIES:
-        for path in sorted((RAW_DIR / species).glob("*.csv")):
-            if path.stem >= cutoff:
-                rows += table_rows(species, path.stem, pd.read_csv(path))
+    for path in sorted(DAILY_DIR.glob("*.csv")):
+        if path.stem >= cutoff:
+            rows += table_rows(path.stem, pd.read_csv(path))
     return rows
+
+
+def species_order(rows):
+    """표에 나오는 어종을 앞에 두고, 나머지는 최근 경락량이 많은 순으로 정렬한다."""
+    volume = {}
+    for r in rows:
+        volume[r[1]] = volume.get(r[1], 0.0) + (r[7] or 0) * (r[8] or 1)
+    first = [s for s in priority_species() if s in volume]
+    rest = sorted((s for s in volume if s not in first), key=lambda s: (-volume[s], s))
+    return first + rest
 
 
 def sample_rows():
     """사이트 접속 없이 화면을 확인하기 위한 결정적 샘플 행."""
-    origins = ["일본", "포항", "통영", "제주", "완도"]
+    origins = ["일본", "포항", "통영", "제주도", "완도"]
     sizes = ["1미", "2미", "3미"]
     rows = []
-    for species_index, species in enumerate(SPECIES[:6]):
+    for species_index, species in enumerate(priority_species()[:8]):
         for date in recent_dates(WINDOW_DAYS):
             if date.weekday() == 6:
                 continue  # 일요일 휴장
@@ -227,8 +226,8 @@ def render_page(rows, source):
     payload = {
         "fields": ROW_FIELDS,
         "rows": rows,
-        "species": SPECIES,
-        "aliases": ALIASES,
+        "species": species_order(rows),
+        "labels": LABELS,
         "table": TABLE_ROWS,
         "window": WINDOW_DAYS,
         "lower": LOWER_RATIO,
@@ -254,8 +253,7 @@ def main():
         raise SystemExit("표시할 시세가 없어 대시보드를 만들 수 없습니다.")
 
     OUTPUT_FILE.write_text(render_page(rows, source), encoding="utf-8")
-    found = sorted({r[1] for r in rows}, key=SPECIES.index)
-    print(f"완료: {OUTPUT_FILE.relative_to(ROOT)} 생성 ({len(rows)}행, 어종 {found}, 소스={source})")
+    print(f"완료: {OUTPUT_FILE.relative_to(ROOT)} 생성 ({len(rows)}행, {len({r[1] for r in rows})}종, 소스={source})")
 
 
 if __name__ == "__main__":

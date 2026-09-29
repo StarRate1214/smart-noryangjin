@@ -23,6 +23,9 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
+# 한 번에 요청하는 최대 행 수. 전체 어종 하루치는 수백 행이라 넉넉하게 둔다.
+PAGE_UNIT = 10000
+
 HIGH_COLUMNS = ["낙찰고가", "최고가", "고가"]
 NUMERIC_COLUMNS = ["수량", "중량", "낙찰고가", "낙찰저가", "평균가", "최고가", "최저가", "고가", "저가"]
 NAME_COLUMNS = ["어종", "어종명", "품목", "품목명", "품명"]
@@ -48,8 +51,8 @@ def download(session, species, date):
     day = date.strftime("%Y.%m.%d")
     form = {
         "pageIndex": 1,
-        "pageUnit": 1000,
-        "pageSize": 1000,
+        "pageUnit": PAGE_UNIT,
+        "pageSize": PAGE_UNIT,
         "kdfshNm": species,
         "kdfshCode": species,
         "searchStartDe": day,
@@ -136,7 +139,10 @@ def fetch_day(session, species, date, retries=3):
     last = None
     for attempt in range(retries):
         try:
-            return parse_table(download(session, species, date))
+            table = parse_table(download(session, species, date))
+            if len(table) >= PAGE_UNIT:
+                raise FetchError(f"{date} 응답이 {PAGE_UNIT}행에 닿아 잘렸을 수 있습니다")
+            return table
         except requests.RequestException as exc:
             last = exc
             time.sleep(2 ** (attempt + 1))

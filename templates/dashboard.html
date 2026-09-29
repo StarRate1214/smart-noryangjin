@@ -524,23 +524,25 @@ function renderChart(days) {
     line: style, marker: { size: 6, color: style.color, line: { color: "#fff", width: 1.5 } }, ...extra,
   });
   const showVolume = on("volume");
+  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 상한 80%, 하한 70%, 평균가, 저가, 경락량.
+  // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상한)까지 채우므로 상한 다음에 하한을 둔다.
   Plotly.react(plot, [
-    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
-      line: { color: STOCK.band, width: 1, dash: "dot" },
-      hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>` },
-    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
-      name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
-      line: { color: STOCK.band, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: STOCK.bandFill,
-      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>` },
-    line("low", "저가", low, { color: STOCK.low, width: 2 }, {
-      customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
-    line("avg", "평균가", avg, { color: STOCK.avg, width: 2.5 }, {
-      hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
     line("high", "고가", high, { color: STOCK.high, width: 3 }, {
       mode: showText ? "lines+markers+text" : "lines+markers", marker: { size: 8, color: STOCK.high, line: { color: "#fff", width: 2 } },
       text: high.map((v) => (v === null ? "" : fmt(v))), textposition: "top center",
       textfont: { color: STOCK.high, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
       customdata: days.map((d) => where(d.top)), hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
+    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
+      name: `상한 ${DATA.upper * 100}%`, line: { color: STOCK.band, width: 1, dash: "dot" },
+      hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>` },
+    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
+      name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
+      line: { color: STOCK.band, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: STOCK.bandFill,
+      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>` },
+    line("avg", "평균가", avg, { color: STOCK.avg, width: 2.5 }, {
+      hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
+    line("low", "저가", low, { color: STOCK.low, width: 2 }, {
+      customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
     { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
       marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
       textposition: "outside", textfont: { color: PALETTE.navy, size: 11 }, cliponaxis: false,

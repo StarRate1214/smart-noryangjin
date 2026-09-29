@@ -261,3 +261,19 @@ def test_price_lines_use_stock_colors(page):
     assert colors["고가"] == "#E03131"
     assert colors["저가"] == "#1C7ED6"
     assert colors["평균가"] == "#F08C00"
+
+
+def test_hover_lists_high_band_avg_low_in_order(page):
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    drag = page.locator("#plot .nsewdrag").first
+    drag.scroll_into_view_if_needed()  # 필터가 길면 차트가 화면 아래에 있다
+    box = drag.bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+    page.wait_for_selector("#plot .hoverlayer .legend text", state="attached")
+    items = page.evaluate(
+        "Array.from(document.querySelectorAll('#plot .hoverlayer .legend text')).map(t => t.textContent)"
+    )
+    labels = ["고가", "상한 80%", "하한 70%", "평균가", "저가"]
+    order = [next(i for i, item in enumerate(items) if item.startswith(label)) for label in labels]
+    assert order == sorted(order), f"호버 순서가 다릅니다: {items}"

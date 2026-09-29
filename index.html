@@ -77,6 +77,13 @@
   .chip.species { padding-left: 6px; }
   .star { padding: 0 2px; font-size: 1rem; line-height: 1; color: #c9c4b6; cursor: pointer; }
   .star.on { color: #e0a526; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff;
+            border-radius: 999px; padding: 4px 12px 4px 8px; font-size: .88rem; cursor: pointer; user-select: none; }
+  .toggle input { margin: 0; width: 16px; height: 16px; accent-color: var(--navy); cursor: pointer; }
+  .toggle .swatch { width: 18px; height: 0; border-top: 3px solid; }
+  .toggle .swatch.box { height: 10px; border: 0; border-radius: 2px; }
+  .toggle:has(input:checked) { border-color: var(--sky); }
+  .toggle:has(input:not(:checked)) { color: var(--muted); }
   .hint { font-size: .78rem; color: var(--muted); margin: 4px 0 0; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 14px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--sky);
@@ -133,7 +140,8 @@
       <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
       <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
       <div class="group"><span class="group-label">기간</span><div class="chips" id="ranges"></div></div>
-      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격은 여러 개를 고를 수 있고, 숫자는 최근 거래 건수입니다. 고가는 kg 단위 거래 기준입니다.</p>
+      <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
+      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격은 여러 개를 고를 수 있고, 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.</p>
     </div>
 
     <div class="cards">
@@ -160,6 +168,14 @@ const PRICED = (r) => (r.pack || "").toLowerCase() === "kg" && r.high > 0;
 const STATES = [["활", "활어"], ["선", "선어"], ["", "전체"]];
 const RANGES = [[14, "2주"], [DATA.window, `${DATA.window}일`]];
 const PALETTE = { navy: "#3368A0", sky: "#66A3BF", mint: "#C8DFDB", cream: "#F2EFE7" };
+// 그래프에서 켜고 끌 수 있는 항목. swatch 는 선택박스 옆 범례 표시
+const SERIES = [
+  ["high", "고가", "border-color:#3368A0"],
+  ["avg", "평균가", "border-color:#66A3BF"],
+  ["low", "저가", "border-color:#66A3BF;border-top-style:dashed"],
+  ["band", "가성비 구간", "background:#C8DFDB", "box"],
+  ["volume", "경락량", "background:#66A3BF", "box"],
+];
 
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
@@ -293,6 +309,7 @@ const view = {
   origins: new Set(),
   sizes: new Set(),
   range: load("nr.range", DATA.window),
+  series: new Set(load("nr.series", SERIES.map(([key]) => key))),
 };
 
 function openSpecies(species, kind) {
@@ -368,6 +385,20 @@ function renderFilters() {
   const base = baseRows();
   renderMulti("origins", countBy(base, "origin"), view.origins);
   renderMulti("sizes", countBy(base.filter((r) => !view.origins.size || view.origins.has(r.origin)), "size"), view.sizes);
+  const series = document.getElementById("series");
+  series.replaceChildren();
+  SERIES.forEach(([key, label, swatch, shape]) => {
+    const box = el("label", { class: "toggle" });
+    const input = el("input", { type: "checkbox", "data-series": key });
+    input.checked = view.series.has(key);
+    input.addEventListener("change", () => {
+      input.checked ? view.series.add(key) : view.series.delete(key);
+      save("nr.series", [...view.series]);
+      renderChart(dailySeries());
+    });
+    box.append(input, el("span", { class: "swatch" + (shape ? " " + shape : ""), style: swatch }), label);
+    series.append(box);
+  });
   const ranges = document.getElementById("ranges");
   ranges.replaceChildren();
   RANGES.forEach(([days, label]) => ranges.append(chip(label, view.range === days, () => {
@@ -380,12 +411,19 @@ function dailySeries() {
                                     && (!view.sizes.size || view.sizes.has(r.size)));
   const byDate = new Map();
   rows.forEach((r) => {
-    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null };
+    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0 };
     d.volume += r.volume;
-    if (PRICED(r) && (!d.top || r.high > d.top.high)) d.top = r;
+    if (PRICED(r)) {
+      if (!d.top || r.high > d.top.high) d.top = r;
+      if (r.low > 0 && (!d.bottom || r.low < d.bottom.low)) d.bottom = r;
+      // 평균가는 거래 수량으로 가중한다
+      if (r.avg > 0) { const q = r.qty > 0 ? r.qty : 1; d.avgSum += r.avg * q; d.avgQty += q; }
+    }
     byDate.set(r.date, d);
   });
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  return [...byDate.values()]
+    .map((d) => Object.assign(d, { avg: d.avgQty ? d.avgSum / d.avgQty : null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function renderChart(days) {
@@ -394,23 +432,37 @@ function renderChart(days) {
   plot.hidden = !days.length;
   empty.hidden = !!days.length;
   if (!days.length) { Plotly.purge(plot); return; }
+  const on = (key) => view.series.has(key);
   const x = days.map((d) => md(d.date));
   const high = days.map((d) => (d.top ? d.top.high : null));
+  const low = days.map((d) => (d.bottom ? d.bottom.low : null));
+  const avg = days.map((d) => (d.avg === null ? null : Math.round(d.avg)));
+  const where = (r) => (r ? `${r.origin} ${r.size}`.trim() : "");
   const showText = days.length <= 16;
   const band = (ratio) => high.map((v) => (v === null ? null : Math.round(v * ratio)));
+  const line = (key, name, y, style, extra = {}) => ({
+    x, y, yaxis: "y", name, visible: on(key), connectgaps: true, mode: "lines+markers",
+    line: style, marker: { size: 6, color: style.color, line: { color: "#fff", width: 1.5 } }, ...extra,
+  });
+  const showVolume = on("volume");
   Plotly.react(plot, [
-    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", line: { color: PALETTE.sky, width: 1, dash: "dot" },
-      showlegend: false, hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>`, connectgaps: true },
-    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
+    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
+      line: { color: PALETTE.sky, width: 1, dash: "dot" },
+      hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>` },
+    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
+      name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
       line: { color: PALETTE.sky, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: "rgba(200, 223, 219, 0.6)",
-      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>`, connectgaps: true },
-    { x, y: high, yaxis: "y", name: "고가", mode: showText ? "lines+markers+text" : "lines+markers",
-      line: { color: PALETTE.navy, width: 3 }, marker: { size: 8, color: PALETTE.navy, line: { color: "#fff", width: 2 } },
+      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>` },
+    line("low", "저가", low, { color: PALETTE.sky, width: 2, dash: "dash" }, {
+      customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
+    line("avg", "평균가", avg, { color: PALETTE.sky, width: 2.5 }, {
+      hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
+    line("high", "고가", high, { color: PALETTE.navy, width: 3 }, {
+      mode: showText ? "lines+markers+text" : "lines+markers", marker: { size: 8, color: PALETTE.navy, line: { color: "#fff", width: 2 } },
       text: high.map((v) => (v === null ? "" : fmt(v))), textposition: "top center",
       textfont: { color: PALETTE.navy, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
-      customdata: days.map((d) => (d.top ? `${d.top.origin} ${d.top.size}` : "")),
-      hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>", connectgaps: true },
-    { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량",
+      customdata: days.map((d) => where(d.top)), hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
+    { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
       marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
       textposition: "outside", textfont: { color: PALETTE.navy, size: 11 }, cliponaxis: false,
       hovertemplate: "경락량 %{y:,.0f}kg<extra></extra>" },
@@ -418,11 +470,12 @@ function renderChart(days) {
     hovermode: "x unified", paper_bgcolor: "#fff", plot_bgcolor: "#fff",
     margin: { l: 64, r: 16, t: 40, b: 40 },
     legend: { orientation: "h", traceorder: "normal", yanchor: "bottom", y: 1.02, xanchor: "center", x: 0.5 },
-    xaxis: { type: "category", anchor: "y2", tickfont: { color: "#5f6b76" }, showgrid: false },
-    yaxis: { domain: [0.36, 1], tickformat: ",.0f", title: { text: "원 / kg" }, gridcolor: "#eee",
-             zeroline: false, rangemode: "normal" },
+    // 경락량을 끄면 가격 차트가 전체 높이를 쓴다
+    xaxis: { type: "category", anchor: showVolume ? "y2" : "y", tickfont: { color: "#5f6b76" }, showgrid: false },
+    yaxis: { domain: showVolume ? [0.36, 1] : [0, 1], tickformat: ",.0f", title: { text: "원 / kg" },
+             gridcolor: "#eee", zeroline: false, rangemode: "normal" },
     yaxis2: { domain: [0, 0.26], tickformat: ",.0f", title: { text: "kg" }, gridcolor: "#f3f3f3",
-              rangemode: "tozero" },
+              rangemode: "tozero", visible: showVolume },
     font: { family: "Pretendard, 'Noto Sans KR', sans-serif", color: "#1f2d3d" },
   }, { displayModeBar: false, responsive: true });
 }
@@ -439,7 +492,9 @@ function renderCards(days) {
   const highs = priced.map((d) => d.top.high);
   set("lastLabel", `최근 경매 최고가 (${md(last.date)})`);
   set("lastHigh", won(last.top.high));
-  set("lastDetail", [last.top.origin, last.top.size].filter(Boolean).join(" · "));
+  set("lastDetail", [[last.top.origin, last.top.size].filter(Boolean).join(" "),
+    last.avg ? `평균가 ${won(last.avg)}` : "", last.bottom ? `저가 ${won(last.bottom.low)}` : ""]
+    .filter(Boolean).join(" · "));
   set("zone", `${fmt(last.top.high * DATA.lower)}~${won(last.top.high * DATA.upper)}`);
   set("zoneDetail", `최고가의 ${DATA.lower * 100}~${DATA.upper * 100}%`);
   set("avgLabel", `최고가 평균 (${priced.length}일)`);
@@ -457,7 +512,7 @@ function updatePrice() {
   const stateLabel = STATES.find(([v]) => v === view.state)[1];
   document.getElementById("chartTitle").textContent =
     `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${view.species} 시세`;
-  document.getElementById("chartSub").textContent = `${stateLabel} · 고가(원/kg)와 경락량(kg)`;
+  document.getElementById("chartSub").textContent = `${stateLabel} · 낙찰 고가·평균가·저가(원/kg)와 경락량(kg)`;
   renderCards(days);
   renderChart(days);
 }

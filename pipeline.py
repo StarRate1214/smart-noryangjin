@@ -41,6 +41,15 @@ DEFAULT_SPECIES = [
 ]
 SPECIES = [s.strip() for s in os.environ.get("SPECIES", "").split(",") if s.strip()] or DEFAULT_SPECIES
 
+# 화면 표기와 공식 홈페이지 표기가 다른 어종. 2026-09 조사에서 빈 검색어로 받은 전체 어종 목록(172종)과
+# 입하 통계 수치를 대조해 정했다. 표에는 왼쪽 이름으로 보이고, 검색·어종 일치는 오른쪽 이름으로 한다.
+ALIASES = {"숭어": "감숭어", "돌돔": "줄돔", "황전어": "전어", "킹크랩": "왕게"}
+
+
+def search_name(species):
+    return ALIASES.get(species, species)
+
+
 # 원본에는 자연산/양식, 국산/수입 구분이 없어 산지로 나눈다.
 # 2026년 9월 18~22일 공개 입하 통계와 산지별 경락 수량을 대조해 정한 기준이다.
 FOREIGN = ["일본", "중국", "대만", "러시아", "노르웨이", "미국", "캐나다", "베트남", "호주", "칠레"]
@@ -96,7 +105,7 @@ def fetch_live(dates_by_species):
                 time.sleep(1)  # 서버 부하를 줄이기 위한 간격
             first = False
             try:
-                table = noryangjin.fetch_day(session, species, date)
+                table = noryangjin.fetch_day(session, search_name(species), date)
             except noryangjin.FetchError as exc:
                 if exc.content is not None:
                     DEBUG_DIR.mkdir(exist_ok=True)
@@ -145,6 +154,7 @@ def table_rows(species, date, table):
     """원본 표를 페이지용 행으로 바꾼다.
 
     이름이 검색어와 정확히 같은 어종만 남긴다('방어' 검색에 섞여 오는 '잿방어' 제외).
+    행의 species 에는 화면 표기(예: 킹크랩)를 넣는다.
     """
     name_col = next((c for c in noryangjin.NAME_COLUMNS if c in table.columns), None)
     high_col = next((c for c in noryangjin.HIGH_COLUMNS if c in table.columns), None)
@@ -154,7 +164,7 @@ def table_rows(species, date, table):
     rows = []
     for rec in table.to_dict("records"):
         state, name = noryangjin.split_name(rec[name_col])
-        if name != species:
+        if name != search_name(species):
             continue
         origin = _text(rec.get("산지"))
         weight = _num(rec.get("중량"))
@@ -218,6 +228,7 @@ def render_page(rows, source):
         "fields": ROW_FIELDS,
         "rows": rows,
         "species": SPECIES,
+        "aliases": ALIASES,
         "table": TABLE_ROWS,
         "window": WINDOW_DAYS,
         "lower": LOWER_RATIO,

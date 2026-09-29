@@ -75,6 +75,15 @@
   .chip[aria-pressed="true"] { background: var(--mint); border-color: var(--navy); color: var(--navy); font-weight: 600; }
   .chip .count { color: var(--muted); font-size: .75rem; font-weight: 400; }
   .chip.species { padding-left: 6px; }
+  .chip[data-state="out"] { background: var(--up-bg); border-color: var(--up); border-style: dashed; color: var(--up);
+                            text-decoration: line-through; }
+  .chip[data-state="out"] .count { color: var(--up); }
+  .chip.more { border-style: dashed; color: var(--navy); }
+  .species-box { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .species-box input { width: 100%; max-width: 320px; font: inherit; font-size: .9rem; padding: 7px 12px;
+                       border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text); }
+  .species-box input:focus { outline: 2px solid var(--sky); border-color: var(--sky); }
+  .no-match { color: var(--muted); font-size: .85rem; padding: 6px 0; }
   .star { padding: 0 2px; font-size: 1rem; line-height: 1; color: #c9c4b6; cursor: pointer; }
   .star.on { color: #e0a526; }
   .toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff;
@@ -135,13 +144,18 @@
 
   <section id="view-price" role="tabpanel" aria-labelledby="tab-price" hidden>
     <div class="panel" aria-label="필터">
-      <div class="group"><span class="group-label">어종</span><div class="chips" id="species"></div></div>
+      <div class="group"><span class="group-label">어종</span>
+        <div class="species-box">
+          <input type="search" id="speciesSearch" placeholder="어종 검색 (예: 방어, 킹크랩, 전복)" aria-label="어종 검색" autocomplete="off">
+          <div class="chips" id="species"></div>
+        </div>
+      </div>
       <div class="group"><span class="group-label">상태</span><div class="chips" id="states"></div></div>
       <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
       <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
       <div class="group"><span class="group-label">기간</span><div class="chips" id="ranges"></div></div>
       <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
-      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격은 여러 개를 고를 수 있고, 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.</p>
+      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.</p>
     </div>
 
     <div class="cards">
@@ -168,12 +182,14 @@ const PRICED = (r) => (r.pack || "").toLowerCase() === "kg" && r.high > 0;
 const STATES = [["활", "활어"], ["선", "선어"], ["", "전체"]];
 const RANGES = [[14, "2주"], [DATA.window, `${DATA.window}일`]];
 const PALETTE = { navy: "#3368A0", sky: "#66A3BF", mint: "#C8DFDB", cream: "#F2EFE7" };
+// 가격선은 국내 주식 차트 관례를 따른다: 고가 빨강, 저가 파랑, 평균가(이동평균선) 주황, 밴드(볼린저 밴드) 보라
+const STOCK = { high: "#E03131", low: "#1C7ED6", avg: "#F08C00", band: "#7048E8", bandFill: "rgba(112, 72, 232, 0.12)" };
 // 그래프에서 켜고 끌 수 있는 항목. swatch 는 선택박스 옆 범례 표시
 const SERIES = [
-  ["high", "고가", "border-color:#3368A0"],
-  ["avg", "평균가", "border-color:#66A3BF"],
-  ["low", "저가", "border-color:#66A3BF;border-top-style:dashed"],
-  ["band", "가성비 구간", "background:#C8DFDB", "box"],
+  ["high", "고가", "border-color:#E03131"],
+  ["avg", "평균가", "border-color:#F08C00"],
+  ["low", "저가", "border-color:#1C7ED6"],
+  ["band", "가성비 구간", "background:rgba(112,72,232,.25);border:1px dashed #7048E8", "box"],
   ["volume", "경락량", "background:#66A3BF", "box"],
 ];
 
@@ -209,7 +225,9 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
 /* ------------------------------------------------------------------ 주간 경락량 */
 const LIVE = ALL.filter((r) => r.state === "활");
 const TRADING_DAYS = [...new Set(LIVE.map((r) => r.date))].sort();
-const TABLE_ROWS = DATA.table.filter(([s]) => DATA.species.includes(s));
+const TABLE_ROWS = DATA.table;  // [화면 이름, 공식 표기, 구분]
+const LABELS = DATA.labels || {};
+const speciesLabel = (s) => (LABELS[s] ? `${s}(${LABELS[s]})` : s);
 const volumeIndex = new Map();
 LIVE.forEach((r) => {
   const key = `${r.species}|${r.kind}|${r.date}`;
@@ -267,9 +285,9 @@ function renderWeek() {
   const body = table.appendChild(el("tbody"));
   const colTotals = days.map(() => 0);
   let total = 0, prevTotal = 0;
-  TABLE_ROWS.forEach(([species, kind]) => {
-    const tr = el("tr", { title: `${species} 시세 보기` });
-    const name = el("td", {}, species);
+  TABLE_ROWS.forEach(([label, species, kind]) => {
+    const tr = el("tr", { title: `${label} 시세 보기`, "data-species": species });
+    const name = el("td", {}, label);
     if (kind) name.append(el("span", { class: `tag k-${kind}` }, kind));
     tr.append(name);
     let sum = 0;
@@ -306,8 +324,10 @@ const savedSpecies = load("nr.species", firstPick);
 const view = {
   species: available.includes(savedSpecies) ? savedSpecies : firstPick,
   state: load("nr.state", "활"),
-  origins: new Set(),
-  sizes: new Set(),
+  origins: new Map(),  // 값 -> "in"(포함) | "out"(제외)
+  sizes: new Map(),
+  query: "",
+  showAll: false,
   range: load("nr.range", DATA.window),
   series: new Set(load("nr.series", SERIES.map(([key]) => key))),
 };
@@ -316,7 +336,7 @@ function openSpecies(species, kind) {
   if (!available.includes(species)) return;
   view.species = species; view.state = "활"; view.sizes.clear(); view.origins.clear();
   // 자연산/양식 등 구분이 있는 행이면 그 구분에 해당하는 산지만 고른다
-  if (kind) ALL.forEach((r) => { if (r.species === species && r.kind === kind && r.state === "활") view.origins.add(r.origin); });
+  if (kind) ALL.forEach((r) => { if (r.species === species && r.kind === kind && r.state === "활") view.origins.set(r.origin, "in"); });
   save("nr.species", species);
   showView("price");
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -337,6 +357,17 @@ function countBy(rows, key) {
   return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"));
 }
 
+// 포함으로 고른 값이 있으면 그 값만, 제외로 고른 값은 항상 뺀다
+function passes(filter, value) {
+  const state = filter.get(value);
+  if (state === "out") return false;
+  if (state === "in") return true;
+  for (const s of filter.values()) if (s === "in") return false;
+  return true;
+}
+const hasIncluded = (filter) => [...filter.values()].includes("in");
+const pick = (filter, state) => [...filter].filter(([, s]) => s === state).map(([v]) => v);
+
 function chip(label, pressed, onClick, count) {
   const b = el("button", { type: "button", class: "chip", "aria-pressed": pressed ? "true" : "false" }, label);
   if (count !== undefined) b.append(el("span", { class: "count" }, String(count)));
@@ -344,15 +375,35 @@ function chip(label, pressed, onClick, count) {
   return b;
 }
 
+const SPECIES_PREVIEW = 20;  // 검색하지 않을 때 먼저 보여 줄 어종 수(즐겨찾기 제외)
+
+function selectSpecies(s) {
+  view.species = s; view.origins.clear(); view.sizes.clear(); save("nr.species", s); updatePrice();
+}
+
+function speciesMatches() {
+  const q = view.query.trim().toLowerCase();
+  return available.filter((s) => !q || speciesLabel(s).toLowerCase().includes(q));
+}
+
 function renderSpecies() {
   const box = document.getElementById("species");
   box.replaceChildren();
-  [...favorites, ...available.filter((s) => !favorites.includes(s))].forEach((s) => {
+  const matches = speciesMatches();
+  const favs = favorites.filter((s) => matches.includes(s));
+  let rest = matches.filter((s) => !favorites.includes(s));
+  let hidden = 0;
+  if (!view.query.trim() && !view.showAll && rest.length > SPECIES_PREVIEW) {
+    const shown = rest.slice(0, SPECIES_PREVIEW);
+    if (!favs.includes(view.species) && !shown.includes(view.species) && rest.includes(view.species)) shown.push(view.species);
+    hidden = rest.length - shown.length;
+    rest = shown;
+  }
+  [...favs, ...rest].forEach((s) => {
     const isFav = favorites.includes(s);
-    const b = chip(s, s === view.species, () => {
-      view.species = s; view.origins.clear(); view.sizes.clear(); save("nr.species", s); updatePrice();
-    });
+    const b = chip(speciesLabel(s), s === view.species, () => selectSpecies(s));
     b.classList.add("species");
+    b.dataset.species = s;
     const star = el("span", { class: "star" + (isFav ? " on" : ""), role: "button",
                               "aria-label": s + (isFav ? " 즐겨찾기 해제" : " 즐겨찾기") }, isFav ? "★" : "☆");
     star.addEventListener("click", (e) => {
@@ -363,16 +414,45 @@ function renderSpecies() {
     b.prepend(star);
     box.append(b);
   });
+  if (!matches.length) box.append(el("span", { class: "no-match" }, `'${view.query.trim()}'에 맞는 어종이 없습니다.`));
+  if (hidden) {
+    const more = chip(`+ ${hidden}종 더 보기`, false, () => { view.showAll = true; renderSpecies(); });
+    more.classList.add("more");
+    box.append(more);
+  } else if (view.showAll && !view.query.trim()) {
+    const less = chip("접기", false, () => { view.showAll = false; renderSpecies(); });
+    less.classList.add("more");
+    box.append(less);
+  }
 }
 
-function renderMulti(boxId, options, selected) {
+const searchBox = document.getElementById("speciesSearch");
+searchBox.addEventListener("input", () => { view.query = searchBox.value; renderSpecies(); });
+searchBox.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const first = speciesMatches()[0];
+  if (first) { e.preventDefault(); selectSpecies(first); }
+});
+
+const NEXT_STATE = { undefined: "in", in: "out", out: undefined };
+
+function renderMulti(boxId, options, filter) {
   const box = document.getElementById(boxId);
   box.replaceChildren();
-  [...selected].forEach((v) => { if (!options.some(([o]) => o === v)) selected.delete(v); });
-  box.append(chip("전체", selected.size === 0, () => { selected.clear(); updatePrice(); }));
-  options.forEach(([value, count]) => box.append(chip(value, selected.has(value), () => {
-    selected.has(value) ? selected.delete(value) : selected.add(value); updatePrice();
-  }, count)));
+  // 목록에 더 이상 없는 값은 선택에서 뺀다
+  [...filter.keys()].forEach((v) => { if (!options.some(([o]) => o === v)) filter.delete(v); });
+  box.append(chip("전체", !hasIncluded(filter), () => { filter.clear(); updatePrice(); }));
+  options.forEach(([value, count]) => {
+    const state = filter.get(value);
+    const b = chip(value, state === "in", () => {
+      const next = NEXT_STATE[state];
+      next ? filter.set(value, next) : filter.delete(value);
+      updatePrice();
+    }, count);
+    if (state === "out") { b.dataset.state = "out"; b.title = `${value} 제외 중 (누르면 해제)`; }
+    else if (state === "in") { b.dataset.state = "in"; b.title = `${value} 포함 중 (한 번 더 누르면 제외)`; }
+    box.append(b);
+  });
 }
 
 function renderFilters() {
@@ -384,7 +464,7 @@ function renderFilters() {
   });
   const base = baseRows();
   renderMulti("origins", countBy(base, "origin"), view.origins);
-  renderMulti("sizes", countBy(base.filter((r) => !view.origins.size || view.origins.has(r.origin)), "size"), view.sizes);
+  renderMulti("sizes", countBy(base.filter((r) => passes(view.origins, r.origin)), "size"), view.sizes);
   const series = document.getElementById("series");
   series.replaceChildren();
   SERIES.forEach(([key, label, swatch, shape]) => {
@@ -407,8 +487,7 @@ function renderFilters() {
 }
 
 function dailySeries() {
-  const rows = baseRows().filter((r) => (!view.origins.size || view.origins.has(r.origin))
-                                    && (!view.sizes.size || view.sizes.has(r.size)));
+  const rows = baseRows().filter((r) => passes(view.origins, r.origin) && passes(view.sizes, r.size));
   const byDate = new Map();
   rows.forEach((r) => {
     const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0 };
@@ -447,20 +526,20 @@ function renderChart(days) {
   const showVolume = on("volume");
   Plotly.react(plot, [
     { x, y: band(DATA.upper), yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
-      line: { color: PALETTE.sky, width: 1, dash: "dot" },
+      line: { color: STOCK.band, width: 1, dash: "dot" },
       hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>` },
     { x, y: band(DATA.lower), yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
       name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
-      line: { color: PALETTE.sky, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: "rgba(200, 223, 219, 0.6)",
+      line: { color: STOCK.band, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: STOCK.bandFill,
       hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>` },
-    line("low", "저가", low, { color: PALETTE.sky, width: 2, dash: "dash" }, {
+    line("low", "저가", low, { color: STOCK.low, width: 2 }, {
       customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
-    line("avg", "평균가", avg, { color: PALETTE.sky, width: 2.5 }, {
+    line("avg", "평균가", avg, { color: STOCK.avg, width: 2.5 }, {
       hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
-    line("high", "고가", high, { color: PALETTE.navy, width: 3 }, {
-      mode: showText ? "lines+markers+text" : "lines+markers", marker: { size: 8, color: PALETTE.navy, line: { color: "#fff", width: 2 } },
+    line("high", "고가", high, { color: STOCK.high, width: 3 }, {
+      mode: showText ? "lines+markers+text" : "lines+markers", marker: { size: 8, color: STOCK.high, line: { color: "#fff", width: 2 } },
       text: high.map((v) => (v === null ? "" : fmt(v))), textposition: "top center",
-      textfont: { color: PALETTE.navy, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
+      textfont: { color: STOCK.high, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
       customdata: days.map((d) => where(d.top)), hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
     { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
       marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
@@ -508,10 +587,12 @@ function updatePrice() {
   renderFilters();
   const days = dailySeries();
   const latest = days.length ? toDate(days[days.length - 1].date) : new Date();
-  const where = view.origins.size ? [...view.origins].join("/") + " " : "";
+  const included = pick(view.origins, "in"), excluded = pick(view.origins, "out");
+  const where = included.length ? included.join("/") + " " : "";
+  const without = excluded.length ? ` (${excluded.join("/")} 제외)` : "";
   const stateLabel = STATES.find(([v]) => v === view.state)[1];
   document.getElementById("chartTitle").textContent =
-    `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${view.species} 시세`;
+    `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${speciesLabel(view.species)} 시세${without}`;
   document.getElementById("chartSub").textContent = `${stateLabel} · 낙찰 고가·평균가·저가(원/kg)와 경락량(kg)`;
   renderCards(days);
   renderChart(days);

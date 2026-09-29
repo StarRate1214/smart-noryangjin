@@ -89,7 +89,7 @@ def expected_week_totals(rows):
     live = [dict(zip(pipeline.ROW_FIELDS, r)) for r in rows]
     live = [r for r in live if r["state"] == "활"]
     days = sorted({r["date"] for r in live})[-5:]
-    wanted = {(s, k) for s, k in pipeline.TABLE_ROWS}
+    wanted = {(official, kind) for _, official, kind in pipeline.TABLE_ROWS}
     kinds_by_species = {}
     for s, k in wanted:
         kinds_by_species.setdefault(s, set()).add(k)
@@ -109,7 +109,7 @@ def expected_week_totals(rows):
 
 def test_weekly_table(page, site):
     rows = page.locator("#weekTable tbody tr")
-    assert rows.count() == len([r for r in pipeline.TABLE_ROWS if r[0] in pipeline.SPECIES])
+    assert rows.count() == len(pipeline.TABLE_ROWS)
     cells = page.locator("#weekTable tbody td:not(:first-child)").all_inner_texts()
     assert any(number(c) > 0 for c in cells if re.fullmatch(r"[\d,]+", c)), "주간 표가 모두 0 입니다"
     foot = page.locator("#weekTable tfoot td").all_inner_texts()
@@ -118,25 +118,27 @@ def test_weekly_table(page, site):
     assert shown == pytest.approx(expected, abs=1.0)
 
 
-def test_row_click_opens_species_chart(page):
-    first = page.locator("#weekTable tbody tr").first
-    species = first.get_attribute("title").replace(" 시세 보기", "")
-    first.click()
+def test_row_click_opens_species_chart(page, site):
+    official = "줄돔" if site["kind"] == "real" else "넙치"
+    row = page.locator(f'#weekTable tbody tr[data-species="{official}"]').first
+    row.click()
     assert page.locator("#tab-price").get_attribute("aria-selected") == "true"
-    assert species in page.locator('#species .chip[aria-pressed="true"]').inner_text()
-    assert species in page.inner_text("#chartTitle")
+    if site["kind"] == "real":
+        # 공식 표기(줄돔)로 선택되고, 화면에는 흔히 쓰는 이름(돌돔)이 함께 보여야 한다
+        assert page.locator('#species .chip[aria-pressed="true"]').get_attribute("data-species") == "줄돔"
+        assert "줄돔(돌돔)" in page.inner_text("#chartTitle")
 
 
 def test_favorite_moves_species_first_after_reload(page):
     page.click("#tab-price")
-    last = page.locator("#species .chip").last
-    name = last.inner_text().replace("☆", "").strip()
+    last = page.locator("#species .chip.species").last
+    name = last.get_attribute("data-species")
     last.locator(".star").click()
     page.reload()
     page.wait_for_selector("#weekTable tbody tr", state="attached")
     page.click("#tab-price")
-    first = page.locator("#species .chip").first
-    assert "★" in first.inner_text() and name in first.inner_text()
+    first = page.locator("#species .chip.species").first
+    assert "★" in first.inner_text() and first.get_attribute("data-species") == name
 
 
 def test_origin_filter_updates_title(page):
@@ -189,3 +191,73 @@ def test_series_checkboxes_hide_traces_and_persist(page):
     page.click("#tab-price")
     assert not page.is_checked('#series input[data-series="low"]')
     assert trace_visibility(page)["저가"] is False
+
+
+def test_origin_chip_cycles_include_exclude_clear(page):
+    page.click("#tab-price")
+    chip = page.locator("#origins .chip").nth(1)
+    origin = chip.inner_text().split("\n")[0].strip()
+    target = page.locator("#origins .chip", has_text=origin).first
+
+    target.click()  # 포함
+    assert target.get_attribute("data-state") == "in"
+    assert page.locator("#origins .chip").first.get_attribute("aria-pressed") == "false"
+
+    target.click()  # 제외
+    target = page.locator("#origins .chip", has_text=origin).first
+    assert target.get_attribute("data-state") == "out"
+    assert f"({origin} 제외)" in page.inner_text("#chartTitle")
+    # 제외만 있으면 '전체'는 여전히 선택된 상태다
+    assert page.locator("#origins .chip").first.get_attribute("aria-pressed") == "true"
+
+    target.click()  # 해제
+    target = page.locator("#origins .chip", has_text=origin).first
+    assert target.get_attribute("data-state") is None
+    assert "제외" not in page.inner_text("#chartTitle")
+
+
+def test_excluded_origin_is_left_out_of_chart(page):
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    before = sum(v or 0 for v in trace_field(page, "y")["경락량"])
+    page.locator("#origins .chip").nth(1).click()
+    page.locator("#origins .chip").nth(1).click()
+    after = sum(v or 0 for v in trace_field(page, "y")["경락량"])
+    assert after < before
+
+
+def test_species_search_filters_chips_and_enter_selects(page, site):
+    page.click("#tab-price")
+    query = "킹크랩" if site["kind"] == "real" else "방어"
+    expected = "왕게" if site["kind"] == "real" else "방어"
+    page.fill("#speciesSearch", query)
+    chips = page.locator("#species .chip.species")
+    assert chips.count() >= 1
+    assert expected in [chips.nth(i).get_attribute("data-species") for i in range(chips.count())]
+    page.press("#speciesSearch", "Enter")
+    assert page.locator('#species .chip[aria-pressed="true"]').get_attribute("data-species") == expected
+    page.fill("#speciesSearch", "없는어종명")
+    assert page.locator("#species .chip.species").count() == 0
+    assert "맞는 어종이 없습니다" in page.inner_text("#species")
+
+
+def test_more_button_reveals_all_species(page, site):
+    page.click("#tab-price")
+    payload_species = page.evaluate("DATA.species.length")
+    more = page.locator("#species .chip.more")
+    if payload_species <= 21:
+        assert more.count() == 0
+        return
+    before = page.locator("#species .chip.species").count()
+    more.click()
+    assert page.locator("#species .chip.species").count() == payload_species > before
+
+
+def test_price_lines_use_stock_colors(page):
+    page.click("#tab-price")
+    colors = page.evaluate(
+        "Object.fromEntries(document.getElementById('plot').data.map(t => [t.name || '상한', t.line && t.line.color]))"
+    )
+    assert colors["고가"] == "#E03131"
+    assert colors["저가"] == "#1C7ED6"
+    assert colors["평균가"] == "#F08C00"

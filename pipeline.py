@@ -34,8 +34,32 @@ DEBUG_DIR = ROOT / "debug"
 TEMPLATE_FILE = ROOT / "templates" / "dashboard.html"
 OUTPUT_FILE = ROOT / "index.html"
 
-DEFAULT_SPECIES = ["방어", "잿방어", "넙치", "참돔", "우럭", "농어", "참숭어"]
+# 이미지(주간 입하 표, 킹크랩 시세)에 나오는 어종 + 기존 수집 어종. 앞의 어종이 기본 선택
+DEFAULT_SPECIES = [
+    "넙치", "농어", "참돔", "숭어", "부시리", "도다리", "능성어", "방어", "잿방어",
+    "흑점줄전갱이", "민어", "벤자리", "감성돔", "돌돔", "황전어", "참숭어", "우럭", "킹크랩",
+]
 SPECIES = [s.strip() for s in os.environ.get("SPECIES", "").split(",") if s.strip()] or DEFAULT_SPECIES
+
+# 원본에는 자연산/양식, 국산/수입 구분이 없어 산지로 나눈다.
+# 2026년 9월 18~22일 공개 입하 통계와 산지별 경락 수량을 대조해 정한 기준이다.
+FOREIGN = ["일본", "중국", "대만", "러시아", "노르웨이", "미국", "캐나다", "베트남", "호주", "칠레"]
+KIND_RULES = {
+    "넙치": ("자연산", {"양식": ["제주도"]}),
+    "참돔": ("자연산", {"양식": ["일본", "통영"]}),
+    "농어": ("자연산", {"양식": ["중국"]}),
+    "감성돔": ("국산", {"수입": FOREIGN}),
+    "돌돔": ("국산", {"수입": FOREIGN}),
+}
+
+# 주간 경락량 표의 행 순서: (어종, 구분)
+TABLE_ROWS = [
+    ("넙치", "자연산"), ("넙치", "양식"), ("농어", "자연산"), ("농어", "양식"),
+    ("참돔", "자연산"), ("참돔", "양식"), ("숭어", ""), ("부시리", ""), ("도다리", ""),
+    ("능성어", ""), ("방어", ""), ("잿방어", ""), ("흑점줄전갱이", ""), ("민어", ""),
+    ("벤자리", ""), ("감성돔", "국산"), ("돌돔", "국산"), ("돌돔", "수입"), ("황전어", ""),
+    ("참숭어", ""), ("우럭", ""),
+]
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 
 WINDOW_DAYS = 30
@@ -45,7 +69,7 @@ UPPER_RATIO = 0.8
 KST = datetime.timezone(datetime.timedelta(hours=9))
 
 # 페이지에 넣는 행의 열 순서
-ROW_FIELDS = ["date", "species", "state", "origin", "size", "pack", "qty", "high", "low", "avg"]
+ROW_FIELDS = ["date", "species", "kind", "state", "origin", "size", "pack", "qty", "weight", "high", "low", "avg"]
 
 
 def today_kst():
@@ -112,6 +136,11 @@ def _text(value):
     return "" if pd.isna(value) else str(value).strip()
 
 
+def kind_of(species, origin):
+    default, rules = KIND_RULES.get(species, ("", {}))
+    return next((label for label, origins in rules.items() if origin in origins), default)
+
+
 def table_rows(species, date, table):
     """원본 표를 페이지용 행으로 바꾼다.
 
@@ -127,15 +156,19 @@ def table_rows(species, date, table):
         state, name = noryangjin.split_name(rec[name_col])
         if name != species:
             continue
+        origin = _text(rec.get("산지"))
+        weight = _num(rec.get("중량"))
         rows.append(
             [
                 date,
                 species,
+                kind_of(species, origin),
                 state,
-                _text(rec.get("산지")),
+                origin,
                 _text(rec.get("규격")),
                 _text(rec.get(pack_col)),
                 _num(rec.get("수량")),
+                weight if weight else 1.0,
                 _num(rec.get(high_col)),
                 _num(rec.get("낙찰저가")),
                 _num(rec.get("평균가")),
@@ -159,7 +192,7 @@ def sample_rows():
     origins = ["일본", "포항", "통영", "제주", "완도"]
     sizes = ["1미", "2미", "3미"]
     rows = []
-    for species_index, species in enumerate(SPECIES[:4]):
+    for species_index, species in enumerate(SPECIES[:6]):
         for date in recent_dates(WINDOW_DAYS):
             if date.weekday() == 6:
                 continue  # 일요일 휴장
@@ -169,8 +202,8 @@ def sample_rows():
                 for state in ("활", "선"):
                     high = base + rng.randrange(0, 12000, 500) - (6000 if state == "선" else 0)
                     rows.append(
-                        [date.isoformat(), species, state, origin, rng.choice(sizes), "kg",
-                         round(rng.uniform(5, 300), 1), high, high * 0.5, high * 0.8]
+                        [date.isoformat(), species, kind_of(species, origin), state, origin, rng.choice(sizes),
+                         "kg", round(rng.uniform(5, 300), 1), 1.0, high, high * 0.5, high * 0.8]
                     )
     return rows
 
@@ -185,6 +218,7 @@ def render_page(rows, source):
         "fields": ROW_FIELDS,
         "rows": rows,
         "species": SPECIES,
+        "table": TABLE_ROWS,
         "window": WINDOW_DAYS,
         "lower": LOWER_RATIO,
         "upper": UPPER_RATIO,

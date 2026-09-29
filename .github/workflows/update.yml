@@ -44,6 +44,7 @@ jobs:
           SEARCH_NAME: ${{ vars.SEARCH_NAME }}
           NAME_CONTAINS: ${{ vars.NAME_CONTAINS }}
           ITEM_SIZES: ${{ vars.ITEM_SIZES }}
+          PACK_UNIT: ${{ vars.PACK_UNIT }}
         run: python pipeline.py
 
       - name: Upload unparsed response

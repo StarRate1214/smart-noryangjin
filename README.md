@@ -30,7 +30,7 @@ python pipeline.py          # 샘플 데이터로 index.html 생성
 
 1. 화면(`miw3130`)을 GET 해서 세션 쿠키를 받습니다.
 2. `excel/miw3130`에 어종명(`kdfshNm`)과 조회일(`searchStartDe`, `searchEndDe`, `YYYY.MM.DD`)을 POST 합니다.
-3. 받은 파일(.xls/.xlsx 또는 HTML 표)에서 `낙찰고가` 열을 찾아 숫자로 바꾸고, 어종명·규격 조건으로 거른 뒤 최고값을 그날의 최고가로 씁니다.
+3. 받은 표에서 `낙찰고가` 열을 숫자로 바꾸고, 어종명이 정확히 일치하는 행(`(활)방어`, `(선)방어`는 포함하고 `잿방어`는 제외)과 포장 단위가 kg인 행만 남긴 뒤 최고값을 그날의 최고가로 씁니다.
 4. 원본 표는 `data/raw/YYYY-MM-DD.csv`에 남기고, 해석에 실패한 응답은 워크플로 아티팩트 `debug-response`로 올립니다.
 
 ### 켜는 방법
@@ -41,9 +41,10 @@ python pipeline.py          # 샘플 데이터로 index.html 생성
 |------|------|------|
 | `DATA_SOURCE` | `live` | 공식 홈페이지에서 수집 |
 | `ITEM_NAME` | `방어` | 화면에 표시할 이름 |
-| `SEARCH_NAME` | `방어` | 홈페이지 어종 검색어 |
+| `SEARCH_NAME` | `방어` | 홈페이지 어종 검색어. 앞의 (활)·(선) 표기를 뗀 이름이 이것과 같아야 사용 |
 | `NAME_CONTAINS` | `(활)` | 어종명에 이 글자가 들어간 행만 사용 |
-| `ITEM_SIZES` | `소,중` | 이 규격만 사용(비우면 전체 규격 중 최고가) |
+| `ITEM_SIZES` | `1미,2미` | 이 규격만 사용(비우면 전체 규격 중 최고가) |
+| `PACK_UNIT` | `kg` | 이 포장 단위 행만 사용(기본 kg, 즉 1kg당 가격) |
 
 처음 한 번은 **Actions → Update market dashboard → Run workflow**에서 `source=live`, `backfill_days=30`으로 실행해 지난 30일을 채웁니다. 실행 로그에 날짜별 규격 목록과 단위가 찍히므로, 그 값을 보고 `ITEM_SIZES`를 정하면 됩니다.
 

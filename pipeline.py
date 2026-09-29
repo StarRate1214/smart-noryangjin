@@ -15,7 +15,8 @@
     ITEM_NAME      화면에 표시할 품목명 (기본: 방어)
     SEARCH_NAME    공식 홈페이지 어종 검색어 (기본: 방어)
     NAME_CONTAINS  응답 표의 어종명에 반드시 포함될 글자, 예: (활)
-    ITEM_SIZES     쉼표로 구분한 규격 목록, 예: 소,중. 비우면 모든 규격 중 최고가
+    ITEM_SIZES     쉼표로 구분한 규격 목록, 예: 1미,2미. 비우면 모든 규격 중 최고가
+    PACK_UNIT      이 포장 단위 행만 사용 (기본: kg, 즉 1kg당 가격)
     BACKFILL_DAYS  live 모드에서 기록이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
 """
 
@@ -46,6 +47,7 @@ ITEM_NAME = os.environ.get("ITEM_NAME") or "방어"
 SEARCH_NAME = os.environ.get("SEARCH_NAME") or "방어"
 NAME_CONTAINS = os.environ.get("NAME_CONTAINS") or None
 ITEM_SIZES = _env_list("ITEM_SIZES")
+PACK_UNIT = os.environ.get("PACK_UNIT") or "kg"
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 
 WINDOW_DAYS = 30
@@ -100,9 +102,10 @@ def live_rows(dates):
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         table.to_csv(RAW_DIR / f"{date}.csv", index=False)
 
-        picked = noryangjin.select_rows(table, NAME_CONTAINS, ITEM_SIZES)
+        picked = noryangjin.select_rows(table, SEARCH_NAME, NAME_CONTAINS, ITEM_SIZES, PACK_UNIT)
         price, unit = noryangjin.high_price(picked)
-        sizes = sorted(table["규격"].astype(str).unique()) if "규격" in table.columns else []
+        same = noryangjin.select_rows(table, SEARCH_NAME)
+        sizes = sorted(same["규격"].astype(str).unique()) if "규격" in same.columns else []
         print(f"{date}: 전체 {len(table)}행, 선택 {len(picked)}행, 최고가 {price}, 단위 {unit}, 규격 {sizes}")
         if price is not None:
             rows.append({"Date": date.isoformat(), "Item": ITEM_NAME, "High_Price": price, "Unit": unit, "Source": "live"})

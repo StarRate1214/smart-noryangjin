@@ -3,7 +3,7 @@
 '수산물가격정보 > 어종별경락시세'(miw3130) 화면의 엑셀 다운로드 요청을 그대로 재현한다.
     POST https://www.susansijang.co.kr/nsis/miw/ko/info/excel/miw3130
     form: kdfshNm, kdfshCode(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
-응답 표에는 산지, 규격, 단위, 수량, 낙찰고가, 낙찰저가, 평균가 등의 열이 있다.
+응답 표에는 어종((활)방어 식), 산지, 규격(1미 등), 포장(kg, S/P 등), 수량, 중량, 낙찰고가, 낙찰저가, 평균가 열이 있다.
 
 응답은 진짜 .xls/.xlsx 이거나 확장자만 xls 인 HTML 표일 수 있어 둘 다 처리한다.
 """
@@ -26,6 +26,7 @@ USER_AGENT = (
 HIGH_COLUMNS = ["낙찰고가", "최고가", "고가"]
 NUMERIC_COLUMNS = ["수량", "낙찰고가", "낙찰저가", "평균가", "최고가", "최저가", "고가", "저가"]
 NAME_COLUMNS = ["어종", "어종명", "품목", "품목명", "품명"]
+UNIT_COLUMNS = ["포장", "단위"]
 
 
 class FetchError(RuntimeError):
@@ -126,16 +127,28 @@ def _clean(df):
     return df.reset_index(drop=True)
 
 
-def select_rows(df, name_contains=None, sizes=None):
-    """어종명 키워드와 규격 목록으로 행을 거른다. 해당 열이 없으면 거르지 않는다."""
+def species_name(value):
+    """'(활)방어' -> '방어'. 앞에 붙은 상태 표기(활/선/냉 등)를 뗀다."""
+    return re.sub(r"^\s*\([^)]*\)\s*", "", str(value)).strip()
+
+
+def select_rows(df, species=None, name_contains=None, sizes=None, pack=None):
+    """어종·상태·규격·포장 단위로 행을 거른다. 해당 열이 없으면 그 조건은 건너뛴다.
+
+    species 는 상태 표기를 뗀 이름과 정확히 같아야 한다('방어' 검색에 '잿방어'가 섞여 오기 때문).
+    """
     if df.empty:
         return df
-    if name_contains:
-        col = next((c for c in NAME_COLUMNS if c in df.columns), None)
-        if col:
-            df = df[df[col].astype(str).str.contains(name_contains, regex=False)]
+    name_col = next((c for c in NAME_COLUMNS if c in df.columns), None)
+    if name_col and species:
+        df = df[df[name_col].map(species_name) == species]
+    if name_col and name_contains:
+        df = df[df[name_col].astype(str).str.contains(name_contains, regex=False)]
     if sizes and "규격" in df.columns:
         df = df[df["규격"].astype(str).str.strip().isin(sizes)]
+    unit_col = next((c for c in UNIT_COLUMNS if c in df.columns), None)
+    if pack and unit_col:
+        df = df[df[unit_col].astype(str).str.strip().str.lower() == pack.lower()]
     return df
 
 
@@ -145,7 +158,8 @@ def high_price(df):
         return None, None
     high_col = next(c for c in HIGH_COLUMNS if c in df.columns)
     top = df.loc[df[high_col].idxmax()]
-    unit = str(top["단위"]).strip() if "단위" in df.columns else None
+    unit_col = next((c for c in UNIT_COLUMNS if c in df.columns), None)
+    unit = str(top[unit_col]).strip() if unit_col else None
     return int(top[high_col]), unit
 
 

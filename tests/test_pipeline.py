@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 import pipeline
-from tests.conftest import FROZEN_TODAY, REAL_RAW
+from tests.conftest import FROZEN_TODAY
 
 FIELDS = pipeline.ROW_FIELDS
 
@@ -15,54 +15,62 @@ def as_dicts(rows):
     return [dict(zip(FIELDS, r)) for r in rows]
 
 
-def real_table(species, date):
-    return pd.read_csv(REAL_RAW / species / f"{date}.csv")
+BANGEO = pd.DataFrame(
+    {
+        "어종": ["(활)방어", "(활)방어", "(선)방어", "(선)방어", "(활)잿방어", "(활)우럭조개", "(활)우럭"],
+        "산지": ["일본", "포항", "일본", "속초", "일본", "여수", "통영"],
+        "규격": ["1미", "1미", "1미", "4미", "1미", "", "2미"],
+        "포장": ["kg", "kg", "kg", "S/P", "kg", "kg", "kg"],
+        "수량": [135.9, 506.6, 15.2, 25.0, 340.6, 12.0, 3.0],
+        "중량": [1, 1, 1, 4, 1, 1, 1],
+        "낙찰고가": [33000, 22000, 10000, 5000, 37000, 9000, 30000],
+        "낙찰저가": [15000, 10000, 9000, 5000, 15000, 9000, 25000],
+        "평균가": [29400, 14400, 9600, 5000, 30800, 9000, 27000],
+    }
+)
 
 
-def test_table_rows_excludes_similar_names_in_real_bangeo_data():
-    rows = as_dicts(pipeline.table_rows("방어", "2026-09-29", real_table("방어", "2026-09-29")))
-    assert len(rows) == 5
-    assert {r["species"] for r in rows} == {"방어"}
-    # 같은 파일의 (활)잿방어 37,000원이 섞이면 안 된다
-    assert max(r["high"] for r in rows if r["pack"] == "kg") == 33000
+def test_table_rows_keep_every_species_with_official_names():
+    rows = as_dicts(pipeline.table_rows("2026-09-29", BANGEO))
+    assert len(rows) == len(BANGEO)
+    by_species = {}
+    for r in rows:
+        by_species.setdefault(r["species"], []).append(r)
+    # 상태 표기를 뗀 이름으로 정확히 나뉘어야 한다(잿방어·우럭조개가 방어·우럭에 섞이면 안 된다)
+    assert sorted(by_species) == ["방어", "우럭", "우럭조개", "잿방어"]
+    assert max(r["high"] for r in by_species["방어"] if r["pack"] == "kg") == 33000
+    assert {r["state"] for r in by_species["방어"]} == {"활", "선"}
 
 
 def test_box_lot_weight_is_kept():
-    rows = as_dicts(pipeline.table_rows("방어", "2026-09-29", real_table("방어", "2026-09-29")))
-    box = [r for r in rows if r["pack"] == "S/P"]
-    assert box and box[0]["weight"] == 4.0
-    assert box[0]["qty"] * box[0]["weight"] == 100.0
-
-
-@pytest.mark.parametrize("species, intruder", [("우럭", "우럭조개"), ("넙치", "찰넙치")])
-def test_table_rows_excludes_intruders_in_real_data(species, intruder):
-    checked = 0
-    for path in sorted((REAL_RAW / species).glob("*.csv")):
-        table = pd.read_csv(path)
-        if not table["어종"].str.endswith(intruder).any():
-            continue
-        checked += 1
-        rows = as_dicts(pipeline.table_rows(species, path.stem, table))
-        assert {r["species"] for r in rows} <= {species}
-        expected = table["어종"].map(lambda v: pipeline.noryangjin.split_name(v)[1] == species).sum()
-        assert len(rows) == expected
-    assert checked, f"{species} 원본에 {intruder} 행이 있는 파일이 없어 검사하지 못했습니다"
-
-
-def test_alias_matches_official_name_and_keeps_display_name():
-    table = pd.DataFrame({"어종": ["(활)왕게", "(활)대게"], "산지": ["러시아", "러시아"], "포장": ["kg", "kg"],
-                          "수량": [5.0, 5.0], "낙찰고가": [113000, 50000]})
-    rows = as_dicts(pipeline.table_rows("킹크랩", "2026-09-29", table))
-    assert [(r["species"], r["high"]) for r in rows] == [("킹크랩", 113000)]
-    assert pipeline.search_name("킹크랩") == "왕게"
-    assert pipeline.search_name("방어") == "방어"
+    rows = as_dicts(pipeline.table_rows("2026-09-29", BANGEO))
+    (box,) = [r for r in rows if r["pack"] == "S/P"]
+    assert box["weight"] == 4.0 and box["qty"] * box["weight"] == 100.0
 
 
 def test_missing_weight_defaults_to_one():
     table = pd.DataFrame({"어종": ["(활)방어"], "산지": ["일본"], "포장": ["kg"], "수량": [3.0], "낙찰고가": [1000]})
-    (row,) = as_dicts(pipeline.table_rows("방어", "2026-09-29", table))
+    (row,) = as_dicts(pipeline.table_rows("2026-09-29", table))
     assert row["weight"] == 1.0
     assert row["size"] == ""
+
+
+def test_labels_and_table_use_official_names():
+    officials = {official for _, official, _ in pipeline.TABLE_ROWS}
+    assert {"감숭어", "줄돔", "전어"} <= officials
+    assert pipeline.LABELS["왕게"] == "킹크랩"
+    assert pipeline.priority_species()[:3] == ["넙치", "농어", "참돔"]
+    assert "왕게" in pipeline.priority_species()
+
+
+def test_species_order_puts_table_species_first_then_volume():
+    rows = [
+        ["2026-09-29", "전복", "", "활", "완도", "", "kg", 9000.0, 1.0, 1, 1, 1],
+        ["2026-09-29", "개불", "", "활", "여수", "", "kg", 100.0, 1.0, 1, 1, 1],
+        ["2026-09-29", "방어", "", "활", "포항", "", "kg", 1.0, 1.0, 1, 1, 1],
+        ["2026-09-29", "넙치", "양식", "활", "제주도", "", "kg", 1.0, 1.0, 1, 1, 1],
+    ]
+    assert pipeline.species_order(rows) == ["넙치", "방어", "전복", "개불"]
 
 
 @pytest.mark.parametrize(
@@ -72,7 +80,7 @@ def test_missing_weight_defaults_to_one():
         ("넙치", "완도", "자연산"),
         ("참돔", "일본", "양식"),
         ("농어", "서천", "자연산"),
-        ("돌돔", "일본", "수입"),
+        ("줄돔", "일본", "수입"),
         ("감성돔", "여수", "국산"),
         ("방어", "일본", ""),
     ],
@@ -81,47 +89,57 @@ def test_kind_of(species, origin, kind):
     assert pipeline.kind_of(species, origin) == kind
 
 
-def write_raw(raw_dir, species, date, rows=1):
-    folder = raw_dir / species
-    folder.mkdir(parents=True, exist_ok=True)
+def write_daily(daily_dir, date, rows=2):
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    names = ["(활)방어", "(활)넙치"] * rows
     pd.DataFrame(
-        {"어종": [f"(활){species}"] * rows, "산지": ["일본"] * rows, "규격": ["1미"] * rows, "포장": ["kg"] * rows,
+        {"어종": names[:rows], "산지": ["일본"] * rows, "규격": ["1미"] * rows, "포장": ["kg"] * rows,
          "수량": [10.0] * rows, "중량": [1] * rows, "낙찰고가": [20000] * rows, "낙찰저가": [10000] * rows,
          "평균가": [15000] * rows}
-    ).to_csv(folder / f"{date}.csv", index=False)
+    ).to_csv(daily_dir / f"{date}.csv", index=False)
 
 
-def test_collect_live_skips_existing_past_dates_but_always_refetches_recent(raw_dir, monkeypatch):
-    monkeypatch.setattr(pipeline, "SPECIES", ["방어", "넙치"])
+def test_collect_live_skips_existing_past_dates_but_always_refetches_recent(daily_dir, monkeypatch):
     monkeypatch.setattr(pipeline, "BACKFILL_DAYS", 5)
     day = lambda n: FROZEN_TODAY - datetime.timedelta(days=n)  # noqa: E731
-    write_raw(raw_dir, "방어", day(3))
-    write_raw(raw_dir, "방어", day(1))
-    write_raw(raw_dir, "방어", day(0))
-    calls = {}
-    monkeypatch.setattr(pipeline, "fetch_live", lambda plan: calls.update(plan))
+    for n in (3, 1, 0):
+        write_daily(daily_dir, day(n))
+    calls = []
+    monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
 
     pipeline.collect_live()
 
-    assert calls["방어"] == [day(4), day(2), day(1), day(0)]
-    assert calls["넙치"] == [day(4), day(3), day(2), day(1), day(0)]
+    assert calls == [day(4), day(2), day(1), day(0)]
 
 
-def test_collect_live_default_fetches_today_and_yesterday(raw_dir, monkeypatch):
-    monkeypatch.setattr(pipeline, "SPECIES", ["방어"])
+def test_collect_live_default_fetches_today_and_yesterday(daily_dir, monkeypatch):
     monkeypatch.setattr(pipeline, "BACKFILL_DAYS", 0)
-    calls = {}
-    monkeypatch.setattr(pipeline, "fetch_live", lambda plan: calls.update(plan))
+    calls = []
+    monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
     pipeline.collect_live()
-    assert calls == {"방어": [FROZEN_TODAY - datetime.timedelta(days=1), FROZEN_TODAY]}
+    assert calls == [FROZEN_TODAY - datetime.timedelta(days=1), FROZEN_TODAY]
 
 
-def test_live_rows_keeps_only_window(raw_dir, monkeypatch):
-    monkeypatch.setattr(pipeline, "SPECIES", ["방어"])
+def test_fetch_live_requests_all_species_and_saves_by_date(daily_dir, monkeypatch):
+    requested = []
+
+    def fake_fetch_day(session, species, date):
+        requested.append(species)
+        return BANGEO if date == FROZEN_TODAY else pd.DataFrame()
+
+    monkeypatch.setattr(pipeline.noryangjin, "new_session", lambda: None)
+    monkeypatch.setattr(pipeline.noryangjin, "fetch_day", fake_fetch_day)
+    monkeypatch.setattr(pipeline.time, "sleep", lambda s: None)
+    pipeline.fetch_live([FROZEN_TODAY - datetime.timedelta(days=1), FROZEN_TODAY])
+    assert requested == ["", ""]  # 빈 검색어 = 전체 어종
+    assert [p.stem for p in daily_dir.glob("*.csv")] == [FROZEN_TODAY.isoformat()]  # 휴장일은 파일을 만들지 않는다
+
+
+def test_live_rows_keeps_only_window(daily_dir):
     oldest_kept = FROZEN_TODAY - datetime.timedelta(days=pipeline.WINDOW_DAYS - 1)
-    write_raw(raw_dir, "방어", oldest_kept - datetime.timedelta(days=1))
-    write_raw(raw_dir, "방어", oldest_kept)
-    write_raw(raw_dir, "방어", FROZEN_TODAY, rows=2)
+    write_daily(daily_dir, oldest_kept - datetime.timedelta(days=1))
+    write_daily(daily_dir, oldest_kept)
+    write_daily(daily_dir, FROZEN_TODAY, rows=2)
     dates = sorted({r[0] for r in pipeline.live_rows()})
     assert dates == [oldest_kept.isoformat(), FROZEN_TODAY.isoformat()]
 
@@ -141,6 +159,8 @@ def test_render_page_embeds_escaped_json():
     assert payload["fields"] == FIELDS
     assert payload["rows"][0][4] == "</script><b>x"
     assert payload["table"] == [list(r) for r in pipeline.TABLE_ROWS]
+    assert payload["species"] == ["방어"]
+    assert payload["labels"] == pipeline.LABELS
     assert payload["sample"] is False
 
 

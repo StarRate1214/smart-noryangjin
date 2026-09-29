@@ -33,15 +33,13 @@ def no_network(request, monkeypatch):
 
 
 @pytest.fixture
-def raw_dir(tmp_path, monkeypatch):
-    """pipeline.RAW_DIR 를 임시 디렉터리로 바꾼다."""
-    path = tmp_path / "raw"
-    path.mkdir()
-    monkeypatch.setattr(pipeline, "RAW_DIR", path)
+def daily_dir(tmp_path, monkeypatch):
+    """pipeline.DAILY_DIR 를 임시 디렉터리로 바꾼다."""
+    path = tmp_path / "daily"
+    monkeypatch.setattr(pipeline, "DAILY_DIR", path)
     return path
 
 
-REAL_RAW = ROOT / "data" / "raw"
 
 
 @pytest.hookimpl(hookwrapper=True)

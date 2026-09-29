@@ -12,7 +12,7 @@ on:
         options: ["", "live", "sample"]
         default: ""
       backfill_days:
-        description: "원본(data/raw)이 없는 과거 며칠을 채울지"
+        description: "원본(data/daily)이 없는 과거 며칠을 채울지"
         default: "0"
 
 permissions:
@@ -41,7 +41,6 @@ jobs:
           # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
           DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '0' }}
-          SPECIES: ${{ vars.SPECIES }}
         run: python pipeline.py
 
       # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.

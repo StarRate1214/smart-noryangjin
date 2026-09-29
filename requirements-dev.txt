@@ -1,0 +1,6 @@
+-r requirements-test.txt
+ruff==0.8.6
+playwright==1.63.0
+pyyaml==6.0.2
+# plotly.js 2.35.2 가 들어 있는 버전. 페이지의 CDN 버전과 맞춰 브라우저 테스트에서 쓴다.
+plotly==5.24.1

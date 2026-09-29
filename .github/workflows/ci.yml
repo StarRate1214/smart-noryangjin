@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: lint + unit + data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Compile
+        run: python -m compileall -q -x '(\.git|\.claude)/' .
+
+      - name: Parse workflow YAML
+        run: |
+          python - <<'PY'
+          import pathlib, yaml
+          for path in sorted(pathlib.Path(".github/workflows").glob("*.y*ml")):
+              yaml.safe_load(path.read_text(encoding="utf-8"))
+              print("ok", path)
+          PY
+
+      - name: Unit and data tests
+        run: pytest -m "not browser"
+
+  browser:
+    name: browser smoke
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - run: python -m playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: pytest -m browser
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: test-artifacts/
+          if-no-files-found: ignore

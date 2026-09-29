@@ -32,20 +32,21 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements*.txt
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r requirements-test.txt
 
       - name: Collect prices and build index.html
         env:
           # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
           DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '0' }}
-          ITEM_NAME: ${{ vars.ITEM_NAME }}
-          SEARCH_NAME: ${{ vars.SEARCH_NAME }}
-          NAME_CONTAINS: ${{ vars.NAME_CONTAINS }}
-          ITEM_SIZES: ${{ vars.ITEM_SIZES }}
-          PACK_UNIT: ${{ vars.PACK_UNIT }}
+          SPECIES: ${{ vars.SPECIES }}
         run: python pipeline.py
+
+      # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.
+      - name: Check data and page
+        run: pytest tests/test_data.py -q
 
       - name: Upload unparsed response
         if: failure()

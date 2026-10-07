@@ -67,3 +67,44 @@ def test_rows_without_price_are_dropped():
 )
 def test_split_name(value, expected):
     assert noryangjin.split_name(value) == expected
+
+
+class FakeResponse:
+    def raise_for_status(self):
+        return None
+
+
+def patch_session_get(monkeypatch, failures):
+    """처음 failures 번은 접속 시간 초과, 그 뒤로는 성공하는 Session.get 으로 바꾼다."""
+    calls, waits = [], []
+
+    def fake_get(self, url, timeout):
+        calls.append(url)
+        if len(calls) <= failures:
+            raise noryangjin.requests.ConnectTimeout("connect timeout")
+        return FakeResponse()
+
+    monkeypatch.setattr(noryangjin.requests.Session, "get", fake_get)
+    monkeypatch.setattr(noryangjin.time, "sleep", waits.append)
+    return calls, waits
+
+
+def test_new_session_retries_after_timeouts(monkeypatch):
+    calls, waits = patch_session_get(monkeypatch, failures=2)
+    session = noryangjin.new_session()
+    assert isinstance(session, noryangjin.requests.Session)
+    assert len(calls) == 3
+    assert waits == [10, 20]
+
+
+def test_new_session_gives_up_with_fetch_error(monkeypatch):
+    calls, waits = patch_session_get(monkeypatch, failures=99)
+    with pytest.raises(noryangjin.FetchError, match="3번 접속하지 못했습니다"):
+        noryangjin.new_session()
+    assert len(calls) == 3
+
+
+def test_new_session_succeeds_first_try_without_waiting(monkeypatch):
+    calls, waits = patch_session_get(monkeypatch, failures=0)
+    noryangjin.new_session()
+    assert len(calls) == 1 and waits == []

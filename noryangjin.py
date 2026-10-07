@@ -39,12 +39,26 @@ class FetchError(RuntimeError):
         self.content = content
 
 
-def new_session():
+# 세션 요청 재시도: 사이트가 잠시 응답하지 않는 일이 있어(2026-10-06 연결 시간 초과) 간격을 늘려 가며 다시 시도한다.
+SESSION_RETRIES = 3
+SESSION_WAIT = 10  # 초. 10초, 20초 순으로 기다린다
+
+
+def new_session(retries=SESSION_RETRIES, wait=SESSION_WAIT):
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT, "Referer": PAGE_URL})
-    # 화면을 먼저 열어 세션 쿠키(JSESSIONIDMIW 등)를 받는다.
-    session.get(PAGE_URL, timeout=30).raise_for_status()
-    return session
+    last = None
+    for attempt in range(retries):
+        if attempt:
+            time.sleep(wait * 2 ** (attempt - 1))
+        try:
+            # 화면을 먼저 열어 세션 쿠키(JSESSIONIDMIW 등)를 받는다.
+            session.get(PAGE_URL, timeout=30).raise_for_status()
+            return session
+        except requests.RequestException as exc:
+            last = exc
+            print(f"세션 요청 실패 ({attempt + 1}/{retries}): {exc.__class__.__name__}")
+    raise FetchError(f"공식 홈페이지에 {retries}번 접속하지 못했습니다: {last}")
 
 
 def download(session, species, date):

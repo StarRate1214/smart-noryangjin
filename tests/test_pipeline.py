@@ -167,3 +167,13 @@ def test_render_page_embeds_escaped_json():
 def test_sample_rows_have_all_fields():
     rows = pipeline.sample_rows()
     assert rows and all(len(r) == len(FIELDS) for r in rows)
+
+
+def test_fetch_live_exits_cleanly_when_site_is_unreachable(daily_dir, monkeypatch):
+    def unreachable():
+        raise pipeline.noryangjin.FetchError("공식 홈페이지에 3번 접속하지 못했습니다: timeout")
+
+    monkeypatch.setattr(pipeline.noryangjin, "new_session", unreachable)
+    with pytest.raises(SystemExit, match="3번 접속하지 못했습니다"):
+        pipeline.fetch_live([FROZEN_TODAY])
+    assert not daily_dir.exists()

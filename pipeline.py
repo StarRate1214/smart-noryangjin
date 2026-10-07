@@ -97,7 +97,10 @@ def priority_species():
 
 def fetch_live(dates):
     """날짜별로 전체 어종 경락 표를 받아 data/daily/YYYY-MM-DD.csv 로 저장한다."""
-    session = noryangjin.new_session()
+    try:
+        session = noryangjin.new_session()
+    except noryangjin.FetchError as exc:
+        raise SystemExit(str(exc))
     for i, date in enumerate(dates):
         if i:
             time.sleep(1)  # 서버 부하를 줄이기 위한 간격

@@ -2,8 +2,8 @@ name: Update market dashboard
 
 on:
   schedule:
-    # 매일 07:00 KST (= 22:00 UTC 전날)
-    - cron: "0 22 * * *"
+    # 매일 06:45 KST (= 21:45 UTC 전날). 정각에는 예약 실행이 몰려 GitHub 가 몇 시간씩 늦추므로 45분에 둔다.
+    - cron: "45 21 * * *"
   workflow_dispatch:
     inputs:
       source:

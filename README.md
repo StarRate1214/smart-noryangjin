@@ -23,7 +23,7 @@
 | `templates/dashboard.html` | 페이지 틀. 필터·즐겨찾기·최고가·70/80% 계산을 브라우저에서 처리 |
 | `data/daily/YYYY-MM-DD.csv` | 그날 거래된 모든 어종의 원본 경락 표 |
 | `index.html` | GitHub Pages가 서빙하는 대시보드 |
-| `.github/workflows/update.yml` | 매일 07:00 KST 자동 수집, 데이터 검사 후 커밋 |
+| `.github/workflows/update.yml` | 매일 06:45 KST 자동 수집, 데이터 검사 후 커밋 |
 | `.github/workflows/ci.yml` | PR·`main` 푸시마다 린트, 단위·데이터 테스트, 브라우저 스모크 테스트 |
 | `tests/`, `docs/CI_PLAN.md` | 테스트와 CI 세부 계획 |
 
@@ -39,13 +39,13 @@ DATA_SOURCE=sample python pipeline.py  # 사이트 접속 없이 샘플 데이�
 ## 배포 (GitHub Pages)
 
 1. 저장소 **Settings → Pages → Build and deployment**에서 Source를 `Deploy from a branch`, Branch를 `main` / `(root)`로 저장합니다.
-2. **Actions → Update market dashboard → Run workflow**를 한 번 수동 실행하면 이후 매일 07:00 KST에 갱신됩니다. 기록을 새로 채울 때는 `backfill_days`에 30을 넣습니다.
+2. **Actions → Update market dashboard → Run workflow**를 한 번 수동 실행하면 이후 매일 06:45 KST에 갱신됩니다. GitHub 예약 실행은 붐비는 시간에 늦어질 수 있어, 정각을 피해 45분으로 두었습니다. 기록을 새로 채울 때는 `backfill_days`에 30을 넣습니다.
 
 ## 수집 방식 (노량진수산물도매시장 공식 홈페이지)
 
 `noryangjin.py`는 공식 홈페이지 **수산물가격정보 → 어종별경락시세**(`/nsis/miw/ko/info/miw3130`) 화면의 엑셀 다운로드 요청을 그대로 재현합니다.
 
-1. 화면(`miw3130`)을 GET 해서 세션 쿠키를 받습니다.
+1. 화면(`miw3130`)을 GET 해서 세션 쿠키를 받습니다. 사이트가 잠시 응답하지 않을 때를 대비해 10초, 20초 간격으로 최대 3번 시도합니다.
 2. `excel/miw3130`에 조회일(`searchStartDe`, `searchEndDe`, `YYYY.MM.DD`)을 POST 합니다. 어종명(`kdfshNm`)을 비워 보내면 그날 거래된 모든 어종이 한 번에 옵니다. 매일 자동 실행은 오늘·어제 두 번만 요청합니다.
 3. 응답 표(어종, 산지, 규격, 포장, 수량, 중량, 낙찰고가, 낙찰저가, 평균가)를 `data/daily/YYYY-MM-DD.csv`로 저장합니다. 휴장일은 행이 없어 건너뜁니다. 응답이 요청 한도(10,000행)에 닿으면 잘렸을 수 있어 실패로 처리합니다.
 4. 최근 30일 원본 행을 페이지에 넣습니다. 어종 이름은 `(활)`·`(선)` 표기를 뗀 공식 표기로 나누므로 `방어`와 `잿방어`, `우럭`과 `우럭조개`가 섞이지 않습니다. 가격은 kg 단위 거래만 쓰고, 경락량은 상자 단위를 `수량 × 중량`으로 환산합니다.

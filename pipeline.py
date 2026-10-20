@@ -10,7 +10,7 @@
        data/daily/YYYY-MM-DD.csv 로 저장한다(하루 1회 요청)
     2. 최근 WINDOW_DAYS 일 원본 행을 index.html 에 JSON 으로 넣는다
     3. 어종 선택·검색, 상태·산지·규격 필터(포함/제외), 즐겨찾기, 날짜별 고가·평균가·저가와
-       70~80% 구간 계산은 페이지의 스크립트(templates/dashboard.html)가 브라우저에서 처리한다
+       가성비 구간 계산은 페이지의 스크립트(templates/dashboard.html)가 브라우저에서 처리한다
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
     BACKFILL_DAYS  원본이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
@@ -64,10 +64,10 @@ EXTRA_PRIORITY = ["왕게"]
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 
 WINDOW_DAYS = 30
-# 가성비 구간: 평균가(수량 가중) + (고가 - 평균가) x 70~80%.
+# 가성비 구간: 평균가(수량 가중) + (고가 - 평균가) x 60~80%.
 # 수산물은 너무 싸면 원물 상태가 나쁘므로 구간은 평균가보다 위, 고가 가까이에 둔다. 평균가는 그날 저가보다 낮을 수
 # 없어 구간이 저가선 아래로 내려가지 않는다(고가 x 70~80% 는 활어 어종·날짜의 19%에서 저가 아래로 내려갔다).
-LOWER_RATIO = 0.7
+LOWER_RATIO = 0.6
 UPPER_RATIO = 0.8
 
 KST = datetime.timezone(datetime.timedelta(hours=9))

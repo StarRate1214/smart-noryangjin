@@ -64,19 +64,11 @@ EXTRA_PRIORITY = ["왕게"]
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 
 WINDOW_DAYS = 30
-# 가성비 구간 계산 방식(페이지에서 고른다)
-# - 고가 대비: 고가 x 70~80% (처음 쓰던 방식)
-# - 범위 기준(기본): 대표 저가 + (고가 - 대표 저가) x 30~50%.
-#   대표 저가는 kg 거래 묶음(산지·규격)별 낙찰저가를 그 묶음 평균가의 50% 아래로는 내려가지 않게 보정한 뒤,
-#   수량으로 가중한 하위 25% 값이다. 최솟값은 상처 난 물건 한 건에도 고가의 4~18%까지 떨어지고, 보정 없는
-#   하위 25%도 큰 묶음 하나의 저가에 끌려 10%의 날에 고가의 10% 밑으로 떨어졌다(보정 후 1%).
-#   2026-09~10 활어 695건(어종·날짜)에서 30~50% 구간이 평균가를 담는 비율은 44%로, 고가 대비 70~80%(19%)보다 높았다.
+# 가성비 구간: 고가 x 70~80%. 수산물은 너무 싸면 원물 상태가 나쁘므로 평균가가 아니라 고가를 기준으로 잡는다.
+# 고가의 70%가 그날 저가보다 낮은 날(흰다리새우처럼 한두 가격으로만 거래되는 날, 2026-09~10 활어의 19%)은
+# 구간이 거래가 없던 가격대를 가리키므로, 페이지에서 구간 폭(고가의 10%)을 유지한 채 저가선에서 시작하게 올린다.
 LOWER_RATIO = 0.7
 UPPER_RATIO = 0.8
-RANGE_LOWER = 0.3
-RANGE_UPPER = 0.5
-RANGE_LOW_QUANTILE = 0.25
-RANGE_LOW_FLOOR = 0.5  # 묶음 저가를 그 묶음 평균가의 이 비율 밑으로는 보지 않는다
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 
@@ -246,10 +238,6 @@ def render_page(rows, source):
         "window": WINDOW_DAYS,
         "lower": LOWER_RATIO,
         "upper": UPPER_RATIO,
-        "rangeLower": RANGE_LOWER,
-        "rangeUpper": RANGE_UPPER,
-        "lowQuantile": RANGE_LOW_QUANTILE,
-        "lowFloor": RANGE_LOW_FLOOR,
         "sample": source == "sample",
         "updated": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
     }

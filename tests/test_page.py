@@ -283,47 +283,49 @@ def assert_order(items, labels):
 def test_hover_lists_high_band_avg_low_in_order(page):
     page.click("#tab-price")
     page.locator("#ranges .chip", has_text="30일").click()
-    assert_order(hover_items(page), ["고가", "상한 80%", "하한 70%", "평균가", "저가"])
+    assert_order(hover_items(page), ["고가", "구간 상한 50%", "구간 하한 30%", "평균가", "저가"])
 
 
 def expected_zone(rows, species):
-    """페이지와 같은 규칙: 고가 x 70~80%, 고가의 70%가 저가보다 낮으면 폭(고가의 10%)을 유지한 채 저가선에서 시작."""
+    """페이지와 같은 규칙: 평균가(수량 가중) + (고가 - 평균가) x 30~50%."""
     by_date = {}
     for r in (dict(zip(pipeline.ROW_FIELDS, r)) for r in rows):
         if r["species"] == species and r["state"] == "활" and r["pack"].lower() == "kg" and (r["high"] or 0) > 0:
             by_date.setdefault(r["date"], []).append(r)
     out = {}
     for date, group in by_date.items():
+        priced = [r for r in group if (r["avg"] or 0) > 0]
+        if not priced:
+            continue
+        weights = [r["qty"] if (r["qty"] or 0) > 0 else 1 for r in priced]
+        avg = sum(r["avg"] * w for r, w in zip(priced, weights)) / sum(weights)
         high = max(r["high"] for r in group)
-        lows = [r["low"] for r in group if (r["low"] or 0) > 0]
-        low = min(lows) if lows else 0
-        lower = max(high * 0.7, low)
-        out[date] = (round(lower), round(min(high, lower + high * 0.1)), low > high * 0.7)
+        avg = min(avg, high)
+        out[date] = (round(avg + (high - avg) * 0.3), round(avg + (high - avg) * 0.5), avg)
     return out
 
 
-def test_zone_is_70_80_of_high_shifted_above_low(page, site):
+def test_zone_sits_between_average_and_high(page, site):
     page.click("#tab-price")
     page.locator("#ranges .chip", has_text="30일").click()
-    if site["kind"] == "real":  # 고가·저가 차이가 작아 70%가 저가보다 낮은 날이 많은 어종
+    if site["kind"] == "real":  # 고가·저가 차이가 작아 예전 계산(고가 x 70~80%)이 저가 아래로 내려가던 어종
         page.fill("#speciesSearch", "흰다리새우")
         page.press("#speciesSearch", "Enter")
     species = page.evaluate("view.species")
     expected = expected_zone(site["rows"], species)
     ys = trace_field(page, "y")
     xs = page.evaluate("lastDays.map(d => d.date)")
-    lower = dict(zip(xs, ys["가성비 구간 (고가 대비 70~80%)"]))
-    upper = dict(zip(xs, ys["상한 80%"]))
-    checked = shifted = 0
-    for date, (lo, hi, was_shifted) in expected.items():
+    lower = dict(zip(xs, ys["가성비 구간 (평균가~고가 30~50%)"]))
+    upper = dict(zip(xs, ys["구간 상한 50%"]))
+    avg = dict(zip(xs, ys["평균가"]))
+    checked = 0
+    for date, (lo, hi, _) in expected.items():
         if lower.get(date) is None:
             continue
         assert abs(lower[date] - lo) <= 1 and abs(upper[date] - hi) <= 1, (date, lower[date], upper[date], lo, hi)
+        assert lower[date] >= avg[date] - 1  # 구간은 평균가보다 아래로 내려가지 않는다
         checked += 1
-        shifted += was_shifted
     assert checked > 0
-    if site["kind"] == "real":
-        assert shifted > 0, "흰다리새우에서 저가선 때문에 올린 날을 확인하지 못했습니다"
 
 
 def test_zoom_buttons_narrow_range_and_rescale(page):
@@ -387,7 +389,7 @@ def test_week_table_state_switch(page):
 
 
 def test_band_never_drops_below_low_line(page, site):
-    """고가·저가 차이가 작은 어종(예: 흰다리새우)에서 고가 x 70~80% 가 저가선 아래로 내려가던 문제를 막는다."""
+    """고가·저가 차이가 작은 어종(예: 흰다리새우)에서 구간이 저가선 아래로 내려가던 문제가 다시 생기지 않게 한다."""
     page.click("#tab-price")
     page.locator("#ranges .chip", has_text="30일").click()
     species = "흰다리새우" if site["kind"] == "real" else page.evaluate("view.species")

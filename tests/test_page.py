@@ -283,60 +283,47 @@ def assert_order(items, labels):
 def test_hover_lists_high_band_avg_low_in_order(page):
     page.click("#tab-price")
     page.locator("#ranges .chip", has_text="30일").click()
-    # 기본은 저가·고가 범위 기준 구간
-    assert_order(hover_items(page), ["고가", "구간 상단 50%", "구간 하단 30%", "평균가", "저가"])
-    page.click('#zones .chip[data-zone="high"]')
-    page.mouse.move(0, 0)
     assert_order(hover_items(page), ["고가", "상한 80%", "하한 70%", "평균가", "저가"])
 
 
-def weighted_quantile(pairs, q):
-    pairs = sorted(pairs)
-    total = sum(w for _, w in pairs)
-    acc = 0.0
-    for value, weight in pairs:
-        acc += weight
-        if acc / total >= q:
-            return value
-    return pairs[-1][0]
-
-
-def test_range_zone_uses_representative_low(page, site):
-    """범위 기준 구간이 '대표 저가 + (고가 - 대표 저가) x 30~50%' 로 계산되는지 파이썬으로 다시 계산해 본다.
-
-    대표 저가는 묶음 저가를 그 묶음 평균가의 50% 밑으로는 보지 않게 보정한 뒤의 수량 가중 하위 25% 값이다.
-    """
-    page.click("#tab-price")
-    page.locator("#ranges .chip", has_text="30일").click()
-    species = page.evaluate("view.species")
-    rows = [dict(zip(pipeline.ROW_FIELDS, r)) for r in site["rows"]]
-    rows = [r for r in rows if r["species"] == species and r["state"] == "활" and r["pack"].lower() == "kg"
-            and (r["high"] or 0) > 0]
+def expected_zone(rows, species):
+    """페이지와 같은 규칙: 고가 x 70~80%, 고가의 70%가 저가보다 낮으면 폭(고가의 10%)을 유지한 채 저가선에서 시작."""
     by_date = {}
-    for r in rows:
-        by_date.setdefault(r["date"], []).append(r)
-    expected = {}
+    for r in (dict(zip(pipeline.ROW_FIELDS, r)) for r in rows):
+        if r["species"] == species and r["state"] == "활" and r["pack"].lower() == "kg" and (r["high"] or 0) > 0:
+            by_date.setdefault(r["date"], []).append(r)
+    out = {}
     for date, group in by_date.items():
         high = max(r["high"] for r in group)
-        lows = [
-            (max(r["low"], r["avg"] * 0.5) if (r["avg"] or 0) > 0 else r["low"], r["qty"] if (r["qty"] or 0) > 0 else 1)
-            for r in group if (r["low"] or 0) > 0
-        ]
-        if not lows:
-            continue
-        low = weighted_quantile(lows, 0.25)
-        if low < high:
-            expected[date] = (round(low + (high - low) * 0.3), round(low + (high - low) * 0.5))
-    traces = trace_field(page, "y")
+        lows = [r["low"] for r in group if (r["low"] or 0) > 0]
+        low = min(lows) if lows else 0
+        lower = max(high * 0.7, low)
+        out[date] = (round(lower), round(min(high, lower + high * 0.1)), low > high * 0.7)
+    return out
+
+
+def test_zone_is_70_80_of_high_shifted_above_low(page, site):
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    if site["kind"] == "real":  # 고가·저가 차이가 작아 70%가 저가보다 낮은 날이 많은 어종
+        page.fill("#speciesSearch", "흰다리새우")
+        page.press("#speciesSearch", "Enter")
+    species = page.evaluate("view.species")
+    expected = expected_zone(site["rows"], species)
+    ys = trace_field(page, "y")
     xs = page.evaluate("lastDays.map(d => d.date)")
-    lower = dict(zip(xs, traces["가성비 구간 (저가·고가 범위 30~50%)"]))
-    upper = dict(zip(xs, traces["구간 상단 50%"]))
-    checked = 0
-    for date, (lo, hi) in expected.items():
-        if date in lower and lower[date] is not None:
-            assert abs(lower[date] - lo) <= 1 and abs(upper[date] - hi) <= 1, date
-            checked += 1
+    lower = dict(zip(xs, ys["가성비 구간 (고가 대비 70~80%)"]))
+    upper = dict(zip(xs, ys["상한 80%"]))
+    checked = shifted = 0
+    for date, (lo, hi, was_shifted) in expected.items():
+        if lower.get(date) is None:
+            continue
+        assert abs(lower[date] - lo) <= 1 and abs(upper[date] - hi) <= 1, (date, lower[date], upper[date], lo, hi)
+        checked += 1
+        shifted += was_shifted
     assert checked > 0
+    if site["kind"] == "real":
+        assert shifted > 0, "흰다리새우에서 저가선 때문에 올린 날을 확인하지 못했습니다"
 
 
 def test_zoom_buttons_narrow_range_and_rescale(page):
@@ -407,13 +394,11 @@ def test_band_never_drops_below_low_line(page, site):
     page.fill("#speciesSearch", species)
     page.press("#speciesSearch", "Enter")
     assert page.evaluate("view.species") == species
-    for zone in ("high", "range"):
-        page.click(f'#zones .chip[data-zone="{zone}"]')
-        ys = trace_field(page, "y")
-        lower_name = next(n for n in ys if n.startswith("가성비 구간"))
-        checked = 0
-        for low, lower in zip(ys["저가"], ys[lower_name]):
-            if low is not None and lower is not None:
-                assert lower >= low - 1, (zone, low, lower)
-                checked += 1
-        assert checked > 0, zone
+    ys = trace_field(page, "y")
+    lower_name = next(n for n in ys if n.startswith("가성비 구간"))
+    checked = 0
+    for low, lower in zip(ys["저가"], ys[lower_name]):
+        if low is not None and lower is not None:
+            assert lower >= low - 1, (low, lower)
+            checked += 1
+    assert checked > 0

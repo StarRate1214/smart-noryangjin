@@ -189,10 +189,9 @@
       <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
       <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
       <div class="group"><span class="group-label">기간</span><div class="chips" id="ranges"></div></div>
-      <div class="group"><span class="group-label">구간</span><div class="chips" id="zones"></div></div>
       <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
       <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.
-        '구간'의 범위 기준은 대표 저가와 고가 사이의 30~50% 지점이고, 고가 대비는 고가의 70~80%입니다. 어느 방식이든 구간은 그날 저가선 아래로 내려가지 않습니다. 대표 저가는 묶음(산지·규격)별 저가를 그 묶음 평균가의 절반 아래로는 보지 않도록 보정한 뒤, 수량으로 가중한 하위 25% 값입니다.
+        가성비 구간은 고가의 70~80%입니다(너무 싼 물건은 원물 상태가 나쁘므로 고가를 기준으로 잡습니다). 고가의 70%가 그날 저가보다 낮으면, 구간 폭(고가의 10%)은 그대로 두고 저가선에서 시작하도록 올립니다(고가는 넘지 않음).
         그래프는 위의 버튼이나 (PC에서) 가로로 드래그해 확대하고, 더블클릭하면 전체 보기로 돌아갑니다.</p>
     </div>
 
@@ -231,11 +230,8 @@ const PALETTE = { navy: "#3368A0", sky: "#66A3BF", mint: "#C8DFDB", cream: "#F2E
 // 가격선은 국내 주식 차트 관례를 따른다: 고가 빨강, 저가 파랑, 평균가(이동평균선) 주황, 밴드(볼린저 밴드) 보라
 const STOCK = { high: "#E03131", low: "#1C7ED6", avg: "#F08C00", band: "#7048E8", bandFill: "rgba(112, 72, 232, 0.12)" };
 // 그래프에서 켜고 끌 수 있는 항목. swatch 는 선택박스 옆 범례 표시
-// 가성비 구간 계산 방식. range: 대표 저가~고가 범위의 30~50%, high: 고가의 70~80%
-const ZONES = {
-  range: { label: `저가·고가 범위 ${DATA.rangeLower * 100}~${DATA.rangeUpper * 100}%`, lower: DATA.rangeLower, upper: DATA.rangeUpper },
-  high: { label: `고가 대비 ${DATA.lower * 100}~${DATA.upper * 100}%`, lower: DATA.lower, upper: DATA.upper },
-};
+// 가성비 구간: 고가의 70~80%. 수산물은 너무 싸면 원물 상태가 나쁘므로 평균가가 아니라 고가를 기준으로 잡는다.
+const ZONE_LABEL = `고가 대비 ${Math.round(DATA.lower * 100)}~${Math.round(DATA.upper * 100)}%`;
 const SERIES = [
   ["high", "고가", "border-color:#E03131"],
   ["avg", "평균가", "border-color:#F08C00"],
@@ -465,7 +461,6 @@ const view = {
   showAll: false,
   range: load("nr.range", DATA.window),
   series: new Set(load("nr.series", SERIES.map(([key]) => key))),
-  zone: ZONES[load("nr.zone", "range")] ? load("nr.zone", "range") : "range",
   xr: null,  // 확대 중인 날짜 범위 [시작 인덱스, 끝 인덱스], null 이면 전체
 };
 
@@ -616,15 +611,6 @@ function renderFilters() {
     box.append(input, el("span", { class: "swatch" + (shape ? " " + shape : ""), style: swatch }), label);
     series.append(box);
   });
-  const zones = document.getElementById("zones");
-  zones.replaceChildren();
-  Object.entries(ZONES).forEach(([key, z]) => {
-    const b = chip(key === "range" ? `${z.label} (권장)` : z.label, view.zone === key, () => {
-      view.zone = key; save("nr.zone", key); updatePrice();
-    });
-    b.dataset.zone = key;
-    zones.append(b);
-  });
   const ranges = document.getElementById("ranges");
   ranges.replaceChildren();
   RANGES.forEach(([days, label]) => ranges.append(chip(label, view.range === days, () => {
@@ -632,49 +618,35 @@ function renderFilters() {
   })));
 }
 
-// [값, 가중치] 목록의 가중 분위수. 저가 최솟값 대신 쓰는 '대표 저가'를 구한다.
-function weightedQuantile(pairs, q) {
-  if (!pairs.length) return null;
-  const sorted = [...pairs].sort((a, b) => a[0] - b[0]);
-  const total = sorted.reduce((s, [, w]) => s + w, 0);
-  let acc = 0;
-  for (const [v, w] of sorted) { acc += w; if (acc / total >= q) return v; }
-  return sorted[sorted.length - 1][0];
-}
-
-// 그날의 가성비 구간 [하단, 상단]. 구간은 그날 저가선 아래로 내려가지 않는다(거래가 없던 가격대를 가리키지 않게).
+// 그날의 가성비 구간 [하단, 상단]과 저가선 때문에 올렸는지 여부.
+// 기본은 고가 x 70~80%. 흰다리새우처럼 한두 가격으로만 거래되는 날은 고가의 70%가 저가보다 낮아
+// 거래가 없던 가격대를 가리키게 되므로, 구간 폭(고가의 10%)은 유지한 채 저가선에서 시작하게 올린다.
+// 상단은 고가를 넘지 않으므로 고가와 저가가 같은 날은 구간이 그 가격 한 점이 된다.
 function zoneOf(d) {
   if (!d || !d.top) return null;
-  const z = ZONES[view.zone], high = d.top.high;
-  if (view.zone === "high") {
-    // 흰다리새우처럼 한두 가격으로만 거래되는 날은 고가 x 70~80% 가 저가보다 낮아진다. 저가선에서 멈춘다.
-    const floor = d.bottom ? d.bottom.low : 0;
-    return [Math.max(high * z.lower, floor), Math.max(high * z.upper, floor)];
-  }
-  const low = d.repLow;
-  if (low === null) return null;
-  if (low >= high) return [high, high];  // 한 가격으로만 거래된 날: 할인 여지가 없다
-  return [low + (high - low) * z.lower, low + (high - low) * z.upper];
+  const high = d.top.high, low = d.bottom ? d.bottom.low : 0;
+  const base = high * DATA.lower;
+  const lower = Math.max(base, low);
+  const upper = Math.min(high, lower + high * (DATA.upper - DATA.lower));
+  return { lower, upper, shifted: low > base };
 }
 
 function dailySeries() {
   const rows = baseRows().filter((r) => passes(view.origins, r.origin) && passes(view.sizes, r.size));
   const byDate = new Map();
   rows.forEach((r) => {
-    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0, lows: [] };
+    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0 };
     d.volume += r.volume;
     if (PRICED(r)) {
       if (!d.top || r.high > d.top.high) d.top = r;
       if (r.low > 0 && (!d.bottom || r.low < d.bottom.low)) d.bottom = r;
-      // 대표 저가용: 묶음 저가가 그 묶음 평균가의 절반에도 못 미치면 예외적인 한 건으로 보고 절반 값으로 올린다
-      if (r.low > 0) d.lows.push([r.avg > 0 ? Math.max(r.low, r.avg * DATA.lowFloor) : r.low, r.qty > 0 ? r.qty : 1]);
       // 평균가는 거래 수량으로 가중한다
       if (r.avg > 0) { const q = r.qty > 0 ? r.qty : 1; d.avgSum += r.avg * q; d.avgQty += q; }
     }
     byDate.set(r.date, d);
   });
   return [...byDate.values()]
-    .map((d) => Object.assign(d, { avg: d.avgQty ? d.avgSum / d.avgQty : null, repLow: weightedQuantile(d.lows, DATA.lowQuantile) }))
+    .map((d) => Object.assign(d, { avg: d.avgQty ? d.avgSum / d.avgQty : null }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -730,19 +702,18 @@ function renderChart(days) {
   const visible = (arr) => arr.slice(i0, i1 + 1);
 
   const on = (key) => view.series.has(key);
-  const z = ZONES[view.zone];
   const x = days.map((d) => md(d.date));
   const high = days.map((d) => (d.top ? d.top.high : null));
   const low = days.map((d) => (d.bottom ? d.bottom.low : null));
   const avg = days.map((d) => (d.avg === null ? null : Math.round(d.avg)));
   const zones = days.map(zoneOf);
-  const upper = zones.map((r) => (r ? Math.round(r[1]) : null));
-  const lower = zones.map((r) => (r ? Math.round(r[0]) : null));
+  const upper = zones.map((r) => (r ? Math.round(r.upper) : null));
+  const lower = zones.map((r) => (r ? Math.round(r.lower) : null));
   const where = (r) => (r ? `${r.origin} ${r.size}`.trim() : "");
   const showText = i1 - i0 + 1 <= 16;  // 보이는 날짜가 적을 때만 값 라벨을 단다
   const pct = (v) => `${Math.round(v * 100)}%`;
-  const upperName = view.zone === "high" ? `상한 ${pct(z.upper)}` : `구간 상단 ${pct(z.upper)}`;
-  const lowerName = view.zone === "high" ? `하한 ${pct(z.lower)}` : `구간 하단 ${pct(z.lower)}`;
+  const upperName = `상한 ${pct(DATA.upper)}`;
+  const lowerName = `하한 ${pct(DATA.lower)}`;
   const line = (key, name, y, style, extra = {}) => ({
     x, y, yaxis: "y", name, visible: on(key), connectgaps: true, mode: "lines+markers",
     line: style, marker: { size: 6, color: style.color, line: { color: "#fff", width: 1.5 } }, ...extra,
@@ -754,8 +725,8 @@ function renderChart(days) {
   ].filter(Boolean).map(visible).flat();
   const xRange = view.xr ? [i0 - 0.5, i1 + 0.5] : undefined;
 
-  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 구간 상단, 구간 하단, 평균가, 저가, 경락량.
-  // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상단)까지 채우므로 상단 다음에 하단을 둔다.
+  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 상한 80%, 하한 70%, 평균가, 저가, 경락량.
+  // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상한)까지 채우므로 상한 다음에 하한을 둔다.
   applyingZoom = true;
   Plotly.react(plot, [
     line("high", "고가", high, { color: STOCK.high, width: 3 }, {
@@ -767,11 +738,10 @@ function renderChart(days) {
       name: upperName, line: { color: STOCK.band, width: 1, dash: "dot" },
       hovertemplate: `${upperName}: %{y:,.0f}원<extra></extra>` },
     { x, y: lower, yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
-      name: `가성비 구간 (${z.label})`,
+      name: `가성비 구간 (${ZONE_LABEL})`,
       line: { color: STOCK.band, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: STOCK.bandFill,
-      customdata: days.map((d) => (d.repLow ? fmt(d.repLow) : "-")),
-      hovertemplate: view.zone === "high" ? `${lowerName}: %{y:,.0f}원<extra></extra>`
-        : `${lowerName}: %{y:,.0f}원 (대표 저가 %{customdata}원)<extra></extra>` },
+      customdata: zones.map((r) => (r && r.shifted ? " (저가선에서 시작)" : "")),
+      hovertemplate: `${lowerName}: %{y:,.0f}원%{customdata}<extra></extra>` },
     line("avg", "평균가", avg, { color: STOCK.avg, width: 2.5 }, {
       hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
     line("low", "저가", low, { color: STOCK.low, width: 2 }, {
@@ -845,13 +815,11 @@ function renderCards(days) {
     last.avg ? `평균가 ${won(last.avg)}` : "", last.bottom ? `저가 ${won(last.bottom.low)}` : ""]
     .filter(Boolean).join(" · "));
   const zone = zoneOf(last);
-  set("zone", zone ? `${fmt(zone[0])}~${won(zone[1])}` : "-");
-  const flat = zone && Math.round(zone[0]) === Math.round(zone[1]) && Math.round(zone[1]) >= last.top.high;
-  const clamped = view.zone === "high" && zone && last.bottom && last.top.high * ZONES.high.lower < last.bottom.low;
-  set("zoneDetail", !zone ? "저가 기록이 없어 범위를 구할 수 없습니다"
-    : flat ? "고가와 저가가 같은 한 가격 거래라 할인 여지가 없습니다"
-      : view.zone === "high" ? `${ZONES.high.label} (${md(last.date)})${clamped ? " · 저가선 아래는 저가에서 멈춤" : ""}`
-        : `대표 저가 ${won(last.repLow)}~고가 ${won(last.top.high)}의 ${ZONES.range.lower * 100}~${ZONES.range.upper * 100}%`);
+  const flat = Math.round(zone.lower) === Math.round(zone.upper);
+  set("zone", flat ? won(zone.lower) : `${fmt(zone.lower)}~${won(zone.upper)}`);
+  set("zoneDetail", flat ? "고가와 저가가 같은 한 가격 거래라 구간이 한 점입니다"
+    : zone.shifted ? `고가의 ${Math.round(DATA.lower * 100)}%가 저가보다 낮아 저가선에서 시작 (${md(last.date)})`
+      : `${ZONE_LABEL} (${md(last.date)})`);
   set("avgLabel", `최고가 평균 (${priced.length}일)`);
   set("avgHigh", won(highs.reduce((s, v) => s + v, 0) / highs.length));
   set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);

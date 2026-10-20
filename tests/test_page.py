@@ -397,3 +397,23 @@ def test_week_table_state_switch(page):
     assert "선어" in page.inner_text("#weekTitle")
     page.locator("#weekStates .chip", has_text="전체").click()
     assert page.inner_text("#weekTitle") == "노량진 전체 경락량"
+
+
+def test_band_never_drops_below_low_line(page, site):
+    """고가·저가 차이가 작은 어종(예: 흰다리새우)에서 고가 x 70~80% 가 저가선 아래로 내려가던 문제를 막는다."""
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    species = "흰다리새우" if site["kind"] == "real" else page.evaluate("view.species")
+    page.fill("#speciesSearch", species)
+    page.press("#speciesSearch", "Enter")
+    assert page.evaluate("view.species") == species
+    for zone in ("high", "range"):
+        page.click(f'#zones .chip[data-zone="{zone}"]')
+        ys = trace_field(page, "y")
+        lower_name = next(n for n in ys if n.startswith("가성비 구간"))
+        checked = 0
+        for low, lower in zip(ys["저가"], ys[lower_name]):
+            if low is not None and lower is not None:
+                assert lower >= low - 1, (zone, low, lower)
+                checked += 1
+        assert checked > 0, zone

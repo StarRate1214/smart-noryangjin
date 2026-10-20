@@ -192,7 +192,7 @@
       <div class="group"><span class="group-label">구간</span><div class="chips" id="zones"></div></div>
       <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
       <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.
-        '구간'의 범위 기준은 대표 저가와 고가 사이의 30~50% 지점이고, 고가 대비는 고가의 70~80%입니다. 대표 저가는 묶음(산지·규격)별 저가를 그 묶음 평균가의 절반 아래로는 보지 않도록 보정한 뒤, 수량으로 가중한 하위 25% 값입니다.
+        '구간'의 범위 기준은 대표 저가와 고가 사이의 30~50% 지점이고, 고가 대비는 고가의 70~80%입니다. 어느 방식이든 구간은 그날 저가선 아래로 내려가지 않습니다. 대표 저가는 묶음(산지·규격)별 저가를 그 묶음 평균가의 절반 아래로는 보지 않도록 보정한 뒤, 수량으로 가중한 하위 25% 값입니다.
         그래프는 위의 버튼이나 (PC에서) 가로로 드래그해 확대하고, 더블클릭하면 전체 보기로 돌아갑니다.</p>
     </div>
 
@@ -642,13 +642,18 @@ function weightedQuantile(pairs, q) {
   return sorted[sorted.length - 1][0];
 }
 
-// 그날의 가성비 구간 [하단, 상단]. 범위 기준은 대표 저가가 없거나 고가 이상이면 구할 수 없다.
+// 그날의 가성비 구간 [하단, 상단]. 구간은 그날 저가선 아래로 내려가지 않는다(거래가 없던 가격대를 가리키지 않게).
 function zoneOf(d) {
   if (!d || !d.top) return null;
   const z = ZONES[view.zone], high = d.top.high;
-  if (view.zone === "high") return [high * z.lower, high * z.upper];
+  if (view.zone === "high") {
+    // 흰다리새우처럼 한두 가격으로만 거래되는 날은 고가 x 70~80% 가 저가보다 낮아진다. 저가선에서 멈춘다.
+    const floor = d.bottom ? d.bottom.low : 0;
+    return [Math.max(high * z.lower, floor), Math.max(high * z.upper, floor)];
+  }
   const low = d.repLow;
-  if (low === null || low >= high) return null;
+  if (low === null) return null;
+  if (low >= high) return [high, high];  // 한 가격으로만 거래된 날: 할인 여지가 없다
   return [low + (high - low) * z.lower, low + (high - low) * z.upper];
 }
 
@@ -841,9 +846,12 @@ function renderCards(days) {
     .filter(Boolean).join(" · "));
   const zone = zoneOf(last);
   set("zone", zone ? `${fmt(zone[0])}~${won(zone[1])}` : "-");
-  set("zoneDetail", view.zone === "high" ? `${ZONES.high.label} (${md(last.date)})`
-    : zone ? `대표 저가 ${won(last.repLow)}~고가 ${won(last.top.high)}의 ${ZONES.range.lower * 100}~${ZONES.range.upper * 100}%`
-      : "저가 기록이 없어 범위를 구할 수 없습니다");
+  const flat = zone && Math.round(zone[0]) === Math.round(zone[1]) && Math.round(zone[1]) >= last.top.high;
+  const clamped = view.zone === "high" && zone && last.bottom && last.top.high * ZONES.high.lower < last.bottom.low;
+  set("zoneDetail", !zone ? "저가 기록이 없어 범위를 구할 수 없습니다"
+    : flat ? "고가와 저가가 같은 한 가격 거래라 할인 여지가 없습니다"
+      : view.zone === "high" ? `${ZONES.high.label} (${md(last.date)})${clamped ? " · 저가선 아래는 저가에서 멈춤" : ""}`
+        : `대표 저가 ${won(last.repLow)}~고가 ${won(last.top.high)}의 ${ZONES.range.lower * 100}~${ZONES.range.upper * 100}%`);
   set("avgLabel", `최고가 평균 (${priced.length}일)`);
   set("avgHigh", won(highs.reduce((s, v) => s + v, 0) / highs.length));
   set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);

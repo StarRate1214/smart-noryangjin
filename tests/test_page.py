@@ -283,11 +283,11 @@ def assert_order(items, labels):
 def test_hover_lists_high_band_avg_low_in_order(page):
     page.click("#tab-price")
     page.locator("#ranges .chip", has_text="30일").click()
-    assert_order(hover_items(page), ["고가", "구간 상한 80%", "구간 하한 70%", "평균가", "저가"])
+    assert_order(hover_items(page), ["고가", "구간 상한 80%", "구간 하한 60%", "평균가", "저가"])
 
 
 def expected_zone(rows, species):
-    """페이지와 같은 규칙: 평균가(수량 가중) + (고가 - 평균가) x 70~80%."""
+    """페이지와 같은 규칙: 평균가(수량 가중) + (고가 - 평균가) x 60~80%."""
     by_date = {}
     for r in (dict(zip(pipeline.ROW_FIELDS, r)) for r in rows):
         if r["species"] == species and r["state"] == "활" and r["pack"].lower() == "kg" and (r["high"] or 0) > 0:
@@ -301,7 +301,7 @@ def expected_zone(rows, species):
         avg = sum(r["avg"] * w for r, w in zip(priced, weights)) / sum(weights)
         high = max(r["high"] for r in group)
         avg = min(avg, high)
-        out[date] = (round(avg + (high - avg) * 0.7), round(avg + (high - avg) * 0.8), avg)
+        out[date] = (round(avg + (high - avg) * 0.6), round(avg + (high - avg) * 0.8), avg)
     return out
 
 
@@ -315,7 +315,7 @@ def test_zone_sits_between_average_and_high(page, site):
     expected = expected_zone(site["rows"], species)
     ys = trace_field(page, "y")
     xs = page.evaluate("lastDays.map(d => d.date)")
-    lower = dict(zip(xs, ys["가성비 구간 (평균가~고가 70~80%)"]))
+    lower = dict(zip(xs, ys["가성비 구간 (평균가~고가 60~80%)"]))
     upper = dict(zip(xs, ys["구간 상한 80%"]))
     avg = dict(zip(xs, ys["평균가"]))
     checked = 0

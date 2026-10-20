@@ -62,6 +62,18 @@
   .delta.flat { background: var(--cream); color: var(--muted); }
   tfoot .delta.up { background: transparent; color: #ffd3c8; }
   tfoot .delta.down { background: transparent; color: var(--mint); }
+  .week-tools { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 0 0 12px; }
+  .week-tools .tool { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+  .week-tools select, .week-tools input { font: inherit; font-size: .88rem; padding: 6px 10px; border: 1px solid var(--line);
+                                          border-radius: 8px; background: #fff; color: var(--text); }
+  .week-tools input { width: 200px; max-width: 52vw; }
+  .week-tools input[aria-invalid="true"] { border-color: var(--up); outline-color: var(--up); }
+  .week-tools button.add { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
+                           padding: 6px 12px; font: inherit; font-size: .85rem; cursor: pointer; }
+  .week-tools .msg { font-size: .8rem; color: var(--up); }
+  td .remove { margin-left: 6px; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
+  td .remove:hover { color: var(--up); }
+  td .rank { display: inline-block; min-width: 22px; color: var(--muted); font-size: .78rem; }
   .foot { color: var(--muted); font-size: .8rem; margin: 10px 2px 0; line-height: 1.5; }
 
   /* 시세 차트 */
@@ -105,6 +117,11 @@
   .chart-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
   .chart-head h2 { text-align: left; }
   #plot { width: 100%; height: 520px; }
+  .zoom-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 2px; }
+  .zoom-bar button { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
+                     min-width: 36px; height: 32px; padding: 0 10px; font: inherit; font-size: .85rem; cursor: pointer; }
+  .zoom-bar button:disabled { opacity: .35; cursor: default; }
+  .zoom-bar .zoom-info { color: var(--muted); font-size: .8rem; margin-left: 4px; }
   .empty { padding: 60px 16px; text-align: center; color: var(--muted); }
   footer { color: var(--muted); font-size: .8rem; margin-top: 18px; }
   footer a { color: var(--navy); }
@@ -128,16 +145,34 @@
   <section id="view-week" role="tabpanel" aria-labelledby="tab-week">
     <div class="panel">
       <div class="week-head">
-        <h2>노량진 활어 경락량</h2>
+        <h2 id="weekTitle">노량진 활어 경락량</h2>
         <button type="button" class="step" id="weekPrev" aria-label="이전 5영업일">‹</button>
         <span class="pill now" id="weekNow"></span>
         <button type="button" class="step" id="weekNext" aria-label="다음 5영업일">›</button>
         <span class="pill cmp" id="weekCmp"></span>
         <span class="unit">단위: kg</span>
       </div>
+      <div class="week-tools">
+        <div class="tool"><span>상태</span><div class="chips" id="weekStates"></div></div>
+        <label class="tool"><span>표시 어종</span>
+          <select id="weekMode">
+            <option value="base">기본 표</option>
+            <option value="top30">경락량 상위 30종</option>
+            <option value="top50">경락량 상위 50종</option>
+            <option value="all">전체 어종</option>
+          </select>
+        </label>
+        <div class="tool">
+          <input id="weekAdd" list="weekAddList" placeholder="어종 추가 (예: 전복, 킹크랩)" aria-label="표에 어종 추가" autocomplete="off">
+          <datalist id="weekAddList"></datalist>
+          <button type="button" class="add" id="weekAddBtn">추가</button>
+          <span class="msg" id="weekAddMsg" role="status"></span>
+        </div>
+      </div>
       <div class="table-wrap"><table id="weekTable"></table></div>
       <p class="foot">경락량은 공식 홈페이지 어종별 경락시세의 활어 낙찰 수량(포장 단위는 중량으로 환산)을 합한 값이라, 시장이 발표하는 입하량과는 조금 다릅니다.
         비교 기준은 바로 앞 5영업일 합계입니다. 공식 표기가 다른 어종은 숭어=감숭어, 돌돔=줄돔, 황전어=전어, 킹크랩=왕게로 모았습니다. 자연산·양식, 국산·수입은 산지로 나눴습니다(양식: 넙치 제주도, 참돔 일본·통영, 농어 중국 / 수입: 해외 산지).
+        '표시 어종'에서 경락량 상위 30·50종이나 전체 어종을 볼 수 있고, '어종 추가'로 원하는 어종 행을 붙일 수 있습니다(×로 삭제, 이 브라우저에 저장).
         행을 누르면 그 어종의 시세 차트로 이동합니다.</p>
     </div>
   </section>
@@ -154,8 +189,11 @@
       <div class="group"><span class="group-label">산지</span><div class="chips" id="origins"></div></div>
       <div class="group"><span class="group-label">규격</span><div class="chips" id="sizes"></div></div>
       <div class="group"><span class="group-label">기간</span><div class="chips" id="ranges"></div></div>
+      <div class="group"><span class="group-label">구간</span><div class="chips" id="zones"></div></div>
       <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
-      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.</p>
+      <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.
+        '구간'의 범위 기준은 대표 저가와 고가 사이의 30~50% 지점이고, 고가 대비는 고가의 70~80%입니다. 대표 저가는 묶음(산지·규격)별 저가를 그 묶음 평균가의 절반 아래로는 보지 않도록 보정한 뒤, 수량으로 가중한 하위 25% 값입니다.
+        그래프는 위의 버튼이나 (PC에서) 가로로 드래그해 확대하고, 더블클릭하면 전체 보기로 돌아갑니다.</p>
     </div>
 
     <div class="cards">
@@ -166,6 +204,14 @@
 
     <div class="panel">
       <div class="chart-head"><h2 id="chartTitle"></h2><span class="unit" id="chartSub"></span></div>
+      <div class="zoom-bar" role="toolbar" aria-label="그래프 확대">
+        <button type="button" id="zoomIn" aria-label="확대">＋ 확대</button>
+        <button type="button" id="zoomOut" aria-label="축소">－ 축소</button>
+        <button type="button" id="panLeft" aria-label="이전 날짜로 이동">◀</button>
+        <button type="button" id="panRight" aria-label="다음 날짜로 이동">▶</button>
+        <button type="button" id="zoomReset">전체 보기</button>
+        <span class="zoom-info" id="zoomInfo"></span>
+      </div>
       <div id="plot"></div>
       <div class="empty" id="empty" hidden>조건에 맞는 거래가 없습니다. 필터를 바꿔 보세요.</div>
     </div>
@@ -185,6 +231,11 @@ const PALETTE = { navy: "#3368A0", sky: "#66A3BF", mint: "#C8DFDB", cream: "#F2E
 // 가격선은 국내 주식 차트 관례를 따른다: 고가 빨강, 저가 파랑, 평균가(이동평균선) 주황, 밴드(볼린저 밴드) 보라
 const STOCK = { high: "#E03131", low: "#1C7ED6", avg: "#F08C00", band: "#7048E8", bandFill: "rgba(112, 72, 232, 0.12)" };
 // 그래프에서 켜고 끌 수 있는 항목. swatch 는 선택박스 옆 범례 표시
+// 가성비 구간 계산 방식. range: 대표 저가~고가 범위의 30~50%, high: 고가의 70~80%
+const ZONES = {
+  range: { label: `저가·고가 범위 ${DATA.rangeLower * 100}~${DATA.rangeUpper * 100}%`, lower: DATA.rangeLower, upper: DATA.rangeUpper },
+  high: { label: `고가 대비 ${DATA.lower * 100}~${DATA.upper * 100}%`, lower: DATA.lower, upper: DATA.upper },
+};
 const SERIES = [
   ["high", "고가", "border-color:#E03131"],
   ["avg", "평균가", "border-color:#F08C00"],
@@ -223,16 +274,28 @@ function showView(name) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
 /* ------------------------------------------------------------------ 주간 경락량 */
-const LIVE = ALL.filter((r) => r.state === "활");
-const TRADING_DAYS = [...new Set(LIVE.map((r) => r.date))].sort();
 const TABLE_ROWS = DATA.table;  // [화면 이름, 공식 표기, 구분]
 const LABELS = DATA.labels || {};
 const speciesLabel = (s) => (LABELS[s] ? `${s}(${LABELS[s]})` : s);
-const volumeIndex = new Map();
-LIVE.forEach((r) => {
-  const key = `${r.species}|${r.kind}|${r.date}`;
-  volumeIndex.set(key, (volumeIndex.get(key) || 0) + r.volume);
-});
+const week = {
+  state: ["활", "선", ""].includes(load("nr.weekState", "활")) ? load("nr.weekState", "활") : "활",
+  mode: load("nr.weekMode", "base"),
+  extra: load("nr.weekExtra", []).filter((s) => DATA.species.includes(s)),
+};
+const WEEK_MODES = { base: 0, top30: 30, top50: 50, all: Infinity };
+if (!(week.mode in WEEK_MODES)) week.mode = "base";
+// 영업일은 상태와 관계없이 거래가 있었던 날로 정한다
+const TRADING_DAYS = [...new Set(ALL.map((r) => r.date))].sort();
+let volumeIndex = new Map();
+function buildVolumeIndex() {
+  volumeIndex = new Map();
+  ALL.forEach((r) => {
+    if (week.state && r.state !== week.state) return;
+    const key = `${r.species}|${r.kind}|${r.date}`;
+    volumeIndex.set(key, (volumeIndex.get(key) || 0) + r.volume);
+  });
+}
+buildVolumeIndex();
 const volumeOf = (species, kind, date) => {
   if (kind) return volumeIndex.get(`${species}|${kind}|${date}`) || 0;
   // 구분이 없는 행은 그 어종의 모든 구분을 더한다
@@ -261,7 +324,64 @@ function deltaCell(diff, hasPrev) {
   return td;
 }
 
+// 표에 보일 행: [화면 이름, 공식 표기, 구분, 삭제 가능 여부, 순위]
+function weekRows(days) {
+  const sumOf = (s) => days.reduce((acc, d) => acc + volumeOf(s, "", d), 0);
+  let rows;
+  if (week.mode === "base") {
+    rows = TABLE_ROWS.map(([label, species, kind]) => [label, species, kind, false, null]);
+  } else {
+    const limit = WEEK_MODES[week.mode];
+    const ranked = DATA.species.map((s) => [s, sumOf(s)]).filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).slice(0, limit);
+    rows = ranked.map(([s], i) => [speciesLabel(s), s, "", false, i + 1]);
+  }
+  const shown = new Set(rows.map(([, s]) => s));
+  week.extra.filter((s) => !shown.has(s)).forEach((s) => rows.push([speciesLabel(s), s, "", true, null]));
+  return rows;
+}
+
+function renderWeekTools() {
+  const states = document.getElementById("weekStates");
+  states.replaceChildren();
+  STATES.forEach(([value, label]) => states.append(chip(label, week.state === value, () => {
+    week.state = value; save("nr.weekState", value); buildVolumeIndex(); renderWeek();
+  })));
+  document.getElementById("weekMode").value = week.mode;
+  const stateLabel = STATES.find(([v]) => v === week.state)[1];
+  document.getElementById("weekTitle").textContent = `노량진 ${week.state ? stateLabel : "전체"} 경락량`;
+}
+
+function addWeekSpecies() {
+  const input = document.getElementById("weekAdd");
+  const msg = document.getElementById("weekAddMsg");
+  const q = input.value.trim();
+  if (!q) return;
+  // 공식 표기, 흔히 쓰는 이름, '왕게(킹크랩)' 같은 목록 표기 모두 받는다
+  const found = DATA.species.find((s) => s === q || speciesLabel(s) === q || LABELS[s] === q)
+    || DATA.species.find((s) => speciesLabel(s).includes(q));
+  if (!found) {
+    input.setAttribute("aria-invalid", "true");
+    msg.textContent = `'${q}' 어종을 찾지 못했습니다.`;
+    return;
+  }
+  input.removeAttribute("aria-invalid");
+  msg.textContent = "";
+  input.value = "";
+  if (!week.extra.includes(found)) { week.extra.push(found); save("nr.weekExtra", week.extra); }
+  renderWeek();
+}
+
+document.getElementById("weekMode").addEventListener("change", (e) => {
+  week.mode = e.target.value; save("nr.weekMode", week.mode); renderWeek();
+});
+document.getElementById("weekAddBtn").addEventListener("click", addWeekSpecies);
+document.getElementById("weekAdd").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWeekSpecies(); } });
+document.getElementById("weekAddList").replaceChildren(
+  ...DATA.species.map((s) => el("option", { value: speciesLabel(s) })));
+
 function renderWeek() {
+  renderWeekTools();
   const days = block(weekEnd);
   const prev = block(weekEnd - days.length);
   const table = document.getElementById("weekTable");
@@ -285,10 +405,25 @@ function renderWeek() {
   const body = table.appendChild(el("tbody"));
   const colTotals = days.map(() => 0);
   let total = 0, prevTotal = 0;
-  TABLE_ROWS.forEach(([label, species, kind]) => {
+  const rows = weekRows(days);
+  if (!rows.length) {
+    body.append(el("tr")).append(el("td", { colspan: days.length + 3 }, "이 기간에 거래된 어종이 없습니다."));
+  }
+  rows.forEach(([label, species, kind, removable, rank]) => {
     const tr = el("tr", { title: `${label} 시세 보기`, "data-species": species });
-    const name = el("td", {}, label);
+    const name = el("td", {}, "");
+    if (rank) name.append(el("span", { class: "rank" }, String(rank)));
+    name.append(label);
     if (kind) name.append(el("span", { class: `tag k-${kind}` }, kind));
+    if (removable) {
+      const x = el("button", { type: "button", class: "remove", "aria-label": `${label} 행 삭제`, title: "표에서 빼기" }, "×");
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        week.extra = week.extra.filter((s) => s !== species);
+        save("nr.weekExtra", week.extra); renderWeek();
+      });
+      name.append(x);
+    }
     tr.append(name);
     let sum = 0;
     days.forEach((d, i) => {
@@ -330,6 +465,8 @@ const view = {
   showAll: false,
   range: load("nr.range", DATA.window),
   series: new Set(load("nr.series", SERIES.map(([key]) => key))),
+  zone: ZONES[load("nr.zone", "range")] ? load("nr.zone", "range") : "range",
+  xr: null,  // 확대 중인 날짜 범위 [시작 인덱스, 끝 인덱스], null 이면 전체
 };
 
 function openSpecies(species, kind) {
@@ -479,6 +616,15 @@ function renderFilters() {
     box.append(input, el("span", { class: "swatch" + (shape ? " " + shape : ""), style: swatch }), label);
     series.append(box);
   });
+  const zones = document.getElementById("zones");
+  zones.replaceChildren();
+  Object.entries(ZONES).forEach(([key, z]) => {
+    const b = chip(key === "range" ? `${z.label} (권장)` : z.label, view.zone === key, () => {
+      view.zone = key; save("nr.zone", key); updatePrice();
+    });
+    b.dataset.zone = key;
+    zones.append(b);
+  });
   const ranges = document.getElementById("ranges");
   ranges.replaceChildren();
   RANGES.forEach(([days, label]) => ranges.append(chip(label, view.range === days, () => {
@@ -486,80 +632,197 @@ function renderFilters() {
   })));
 }
 
+// [값, 가중치] 목록의 가중 분위수. 저가 최솟값 대신 쓰는 '대표 저가'를 구한다.
+function weightedQuantile(pairs, q) {
+  if (!pairs.length) return null;
+  const sorted = [...pairs].sort((a, b) => a[0] - b[0]);
+  const total = sorted.reduce((s, [, w]) => s + w, 0);
+  let acc = 0;
+  for (const [v, w] of sorted) { acc += w; if (acc / total >= q) return v; }
+  return sorted[sorted.length - 1][0];
+}
+
+// 그날의 가성비 구간 [하단, 상단]. 범위 기준은 대표 저가가 없거나 고가 이상이면 구할 수 없다.
+function zoneOf(d) {
+  if (!d || !d.top) return null;
+  const z = ZONES[view.zone], high = d.top.high;
+  if (view.zone === "high") return [high * z.lower, high * z.upper];
+  const low = d.repLow;
+  if (low === null || low >= high) return null;
+  return [low + (high - low) * z.lower, low + (high - low) * z.upper];
+}
+
 function dailySeries() {
   const rows = baseRows().filter((r) => passes(view.origins, r.origin) && passes(view.sizes, r.size));
   const byDate = new Map();
   rows.forEach((r) => {
-    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0 };
+    const d = byDate.get(r.date) || { date: r.date, volume: 0, top: null, bottom: null, avgSum: 0, avgQty: 0, lows: [] };
     d.volume += r.volume;
     if (PRICED(r)) {
       if (!d.top || r.high > d.top.high) d.top = r;
       if (r.low > 0 && (!d.bottom || r.low < d.bottom.low)) d.bottom = r;
+      // 대표 저가용: 묶음 저가가 그 묶음 평균가의 절반에도 못 미치면 예외적인 한 건으로 보고 절반 값으로 올린다
+      if (r.low > 0) d.lows.push([r.avg > 0 ? Math.max(r.low, r.avg * DATA.lowFloor) : r.low, r.qty > 0 ? r.qty : 1]);
       // 평균가는 거래 수량으로 가중한다
       if (r.avg > 0) { const q = r.qty > 0 ? r.qty : 1; d.avgSum += r.avg * q; d.avgQty += q; }
     }
     byDate.set(r.date, d);
   });
   return [...byDate.values()]
-    .map((d) => Object.assign(d, { avg: d.avgQty ? d.avgSum / d.avgQty : null }))
+    .map((d) => Object.assign(d, { avg: d.avgQty ? d.avgSum / d.avgQty : null, repLow: weightedQuantile(d.lows, DATA.lowQuantile) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const TOUCH = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+let lastDays = [];
+let applyingZoom = false;
+
+// 확대 범위를 데이터 길이에 맞게 정리한다. 전체를 덮으면 null(전체 보기)
+function clampRange(xr, n) {
+  if (!xr || n < 2) return null;
+  let [a, b] = xr;
+  const width = Math.max(2, Math.min(n - 1, b - a));
+  a = Math.max(0, Math.min(a, n - 1 - width));
+  b = a + width;
+  return a <= 0 && b >= n - 1 ? null : [Math.round(a), Math.round(b)];
+}
+
+function zoomBy(factor) {
+  const n = lastDays.length;
+  const [a, b] = view.xr || [0, n - 1];
+  const center = (a + b) / 2, half = Math.max(1, ((b - a) * factor) / 2);
+  view.xr = clampRange([center - half, center + half], n);
+  renderChart(lastDays);
+}
+
+function panBy(direction) {
+  const n = lastDays.length;
+  if (!view.xr) return;
+  const [a, b] = view.xr, step = Math.max(1, Math.round((b - a) / 3));
+  view.xr = clampRange([a + step * direction, b + step * direction], n);
+  renderChart(lastDays);
+}
+
+// 보이는 날짜 범위의 값으로 세로축을 다시 잡는다
+function paddedRange(values, floorZero) {
+  const v = values.filter((x) => x !== null && x !== undefined && Number.isFinite(x));
+  if (!v.length) return undefined;
+  let lo = Math.min(...v), hi = Math.max(...v);
+  const pad = (hi - lo || hi || 1) * 0.12;
+  lo = floorZero ? 0 : Math.max(0, lo - pad);
+  return [lo, hi + pad];
+}
+
 function renderChart(days) {
+  lastDays = days;
   const plot = document.getElementById("plot");
   const empty = document.getElementById("empty");
   plot.hidden = !days.length;
   empty.hidden = !!days.length;
-  if (!days.length) { Plotly.purge(plot); return; }
+  if (!days.length) { Plotly.purge(plot); updateZoomBar(0); return; }
+  view.xr = clampRange(view.xr, days.length);
+  const [i0, i1] = view.xr || [0, days.length - 1];
+  const visible = (arr) => arr.slice(i0, i1 + 1);
+
   const on = (key) => view.series.has(key);
+  const z = ZONES[view.zone];
   const x = days.map((d) => md(d.date));
   const high = days.map((d) => (d.top ? d.top.high : null));
   const low = days.map((d) => (d.bottom ? d.bottom.low : null));
   const avg = days.map((d) => (d.avg === null ? null : Math.round(d.avg)));
+  const zones = days.map(zoneOf);
+  const upper = zones.map((r) => (r ? Math.round(r[1]) : null));
+  const lower = zones.map((r) => (r ? Math.round(r[0]) : null));
   const where = (r) => (r ? `${r.origin} ${r.size}`.trim() : "");
-  const showText = days.length <= 16;
-  const band = (ratio) => high.map((v) => (v === null ? null : Math.round(v * ratio)));
+  const showText = i1 - i0 + 1 <= 16;  // 보이는 날짜가 적을 때만 값 라벨을 단다
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const upperName = view.zone === "high" ? `상한 ${pct(z.upper)}` : `구간 상단 ${pct(z.upper)}`;
+  const lowerName = view.zone === "high" ? `하한 ${pct(z.lower)}` : `구간 하단 ${pct(z.lower)}`;
   const line = (key, name, y, style, extra = {}) => ({
     x, y, yaxis: "y", name, visible: on(key), connectgaps: true, mode: "lines+markers",
     line: style, marker: { size: 6, color: style.color, line: { color: "#fff", width: 1.5 } }, ...extra,
   });
   const showVolume = on("volume");
-  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 상한 80%, 하한 70%, 평균가, 저가, 경락량.
-  // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상한)까지 채우므로 상한 다음에 하한을 둔다.
+  const volumes = days.map((d) => Math.round(d.volume));
+  const priceSeries = [
+    on("high") && high, on("avg") && avg, on("low") && low, on("band") && upper, on("band") && lower,
+  ].filter(Boolean).map(visible).flat();
+  const xRange = view.xr ? [i0 - 0.5, i1 + 0.5] : undefined;
+
+  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 구간 상단, 구간 하단, 평균가, 저가, 경락량.
+  // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상단)까지 채우므로 상단 다음에 하단을 둔다.
+  applyingZoom = true;
   Plotly.react(plot, [
     line("high", "고가", high, { color: STOCK.high, width: 3 }, {
       mode: showText ? "lines+markers+text" : "lines+markers", marker: { size: 8, color: STOCK.high, line: { color: "#fff", width: 2 } },
       text: high.map((v) => (v === null ? "" : fmt(v))), textposition: "top center",
       textfont: { color: STOCK.high, size: 12, family: "Pretendard, 'Noto Sans KR', sans-serif" },
       customdata: days.map((d) => where(d.top)), hovertemplate: "고가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
-    { x, y: band(DATA.upper), yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
-      name: `상한 ${DATA.upper * 100}%`, line: { color: STOCK.band, width: 1, dash: "dot" },
-      hovertemplate: `상한 ${DATA.upper * 100}%: %{y:,.0f}원<extra></extra>` },
-    { x, y: band(DATA.lower), yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
-      name: `가성비 구간 (${DATA.lower * 100}~${DATA.upper * 100}%)`,
+    { x, y: upper, yaxis: "y", mode: "lines", visible: on("band"), showlegend: false, connectgaps: true,
+      name: upperName, line: { color: STOCK.band, width: 1, dash: "dot" },
+      hovertemplate: `${upperName}: %{y:,.0f}원<extra></extra>` },
+    { x, y: lower, yaxis: "y", mode: "lines", visible: on("band"), connectgaps: true,
+      name: `가성비 구간 (${z.label})`,
       line: { color: STOCK.band, width: 1, dash: "dot" }, fill: "tonexty", fillcolor: STOCK.bandFill,
-      hovertemplate: `하한 ${DATA.lower * 100}%: %{y:,.0f}원<extra></extra>` },
+      customdata: days.map((d) => (d.repLow ? fmt(d.repLow) : "-")),
+      hovertemplate: view.zone === "high" ? `${lowerName}: %{y:,.0f}원<extra></extra>`
+        : `${lowerName}: %{y:,.0f}원 (대표 저가 %{customdata}원)<extra></extra>` },
     line("avg", "평균가", avg, { color: STOCK.avg, width: 2.5 }, {
       hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
     line("low", "저가", low, { color: STOCK.low, width: 2 }, {
       customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
-    { x, y: days.map((d) => Math.round(d.volume)), yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
+    { x, y: volumes, yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
       marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
       textposition: "outside", textfont: { color: PALETTE.navy, size: 11 }, cliponaxis: false,
       hovertemplate: "경락량 %{y:,.0f}kg<extra></extra>" },
   ], {
     hovermode: "x unified", paper_bgcolor: "#fff", plot_bgcolor: "#fff",
+    // PC 에서는 가로 방향으로만 드래그 확대, 휴대폰에서는 페이지 스크롤과 겹치지 않게 드래그를 끈다
+    dragmode: TOUCH ? false : "zoom",
     margin: { l: 64, r: 16, t: 40, b: 40 },
     legend: { orientation: "h", traceorder: "normal", yanchor: "bottom", y: 1.02, xanchor: "center", x: 0.5 },
     // 경락량을 끄면 가격 차트가 전체 높이를 쓴다
-    xaxis: { type: "category", anchor: showVolume ? "y2" : "y", tickfont: { color: "#5f6b76" }, showgrid: false },
+    xaxis: { type: "category", anchor: showVolume ? "y2" : "y", tickfont: { color: "#5f6b76" }, showgrid: false,
+             range: xRange, autorange: !xRange },
     yaxis: { domain: showVolume ? [0.36, 1] : [0, 1], tickformat: ",.0f", title: { text: "원 / kg" },
-             gridcolor: "#eee", zeroline: false, rangemode: "normal" },
+             gridcolor: "#eee", zeroline: false, fixedrange: true, range: paddedRange(priceSeries, false) },
     yaxis2: { domain: [0, 0.26], tickformat: ",.0f", title: { text: "kg" }, gridcolor: "#f3f3f3",
-              rangemode: "tozero", visible: showVolume },
+              fixedrange: true, visible: showVolume, range: paddedRange(visible(volumes), true) },
     font: { family: "Pretendard, 'Noto Sans KR', sans-serif", color: "#1f2d3d" },
-  }, { displayModeBar: false, responsive: true });
+  }, { displayModeBar: false, responsive: true, scrollZoom: false, doubleClick: false })
+    .then(() => { applyingZoom = false; });
+  updateZoomBar(days.length);
+
+  if (!plot.dataset.zoomBound) {
+    plot.dataset.zoomBound = "1";
+    // 드래그 확대 결과를 받아 세로축과 라벨을 다시 맞춘다
+    plot.on("plotly_relayout", (e) => {
+      if (applyingZoom) return;
+      if (e["xaxis.range[0]"] !== undefined) {
+        view.xr = clampRange([Math.ceil(e["xaxis.range[0]"]), Math.floor(e["xaxis.range[1]"])], lastDays.length);
+        renderChart(lastDays);
+      }
+    });
+    plot.on("plotly_doubleclick", () => { view.xr = null; renderChart(lastDays); });
+  }
 }
+
+function updateZoomBar(n) {
+  const [a, b] = view.xr || [0, Math.max(0, n - 1)];
+  document.getElementById("zoomIn").disabled = n < 3 || (view.xr && b - a <= 2);
+  document.getElementById("zoomOut").disabled = !view.xr;
+  document.getElementById("zoomReset").disabled = !view.xr;
+  document.getElementById("panLeft").disabled = !view.xr || a <= 0;
+  document.getElementById("panRight").disabled = !view.xr || b >= n - 1;
+  document.getElementById("zoomInfo").textContent =
+    n ? `${md(lastDays[a].date)}~${md(lastDays[b].date)} · ${b - a + 1}/${n}일 표시` : "";
+}
+
+document.getElementById("zoomIn").addEventListener("click", () => zoomBy(0.6));
+document.getElementById("zoomOut").addEventListener("click", () => zoomBy(1 / 0.6));
+document.getElementById("panLeft").addEventListener("click", () => panBy(-1));
+document.getElementById("panRight").addEventListener("click", () => panBy(1));
+document.getElementById("zoomReset").addEventListener("click", () => { view.xr = null; renderChart(lastDays); });
 
 function renderCards(days) {
   const set = (id, text) => { document.getElementById(id).textContent = text; };
@@ -576,8 +839,11 @@ function renderCards(days) {
   set("lastDetail", [[last.top.origin, last.top.size].filter(Boolean).join(" "),
     last.avg ? `평균가 ${won(last.avg)}` : "", last.bottom ? `저가 ${won(last.bottom.low)}` : ""]
     .filter(Boolean).join(" · "));
-  set("zone", `${fmt(last.top.high * DATA.lower)}~${won(last.top.high * DATA.upper)}`);
-  set("zoneDetail", `최고가의 ${DATA.lower * 100}~${DATA.upper * 100}%`);
+  const zone = zoneOf(last);
+  set("zone", zone ? `${fmt(zone[0])}~${won(zone[1])}` : "-");
+  set("zoneDetail", view.zone === "high" ? `${ZONES.high.label} (${md(last.date)})`
+    : zone ? `대표 저가 ${won(last.repLow)}~고가 ${won(last.top.high)}의 ${ZONES.range.lower * 100}~${ZONES.range.upper * 100}%`
+      : "저가 기록이 없어 범위를 구할 수 없습니다");
   set("avgLabel", `최고가 평균 (${priced.length}일)`);
   set("avgHigh", won(highs.reduce((s, v) => s + v, 0) / highs.length));
   set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);
@@ -597,6 +863,7 @@ function updatePrice() {
     `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${speciesLabel(view.species)} 시세${without}`;
   document.getElementById("chartSub").textContent = `${stateLabel} · 낙찰 고가·평균가·저가(원/kg)와 경락량(kg)`;
   renderCards(days);
+  view.xr = null;  // 어종·필터·기간이 바뀌면 전체 보기로 돌아간다
   renderChart(days);
 }
 

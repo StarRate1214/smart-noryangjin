@@ -86,9 +86,10 @@ def number(text):
 
 def expected_week_totals(rows):
     """페이지 스크립트와 같은 방식으로 마지막 5영업일의 열 합계를 계산한다."""
-    live = [dict(zip(pipeline.ROW_FIELDS, r)) for r in rows]
-    live = [r for r in live if r["state"] == "활"]
-    days = sorted({r["date"] for r in live})[-5:]
+    every = [dict(zip(pipeline.ROW_FIELDS, r)) for r in rows]
+    live = [r for r in every if r["state"] == "활"]
+    # 영업일은 상태와 관계없이 거래가 있었던 날이다
+    days = sorted({r["date"] for r in every})[-5:]
     wanted = {(official, kind) for _, official, kind in pipeline.TABLE_ROWS}
     kinds_by_species = {}
     for s, k in wanted:
@@ -263,17 +264,136 @@ def test_price_lines_use_stock_colors(page):
     assert colors["평균가"] == "#F08C00"
 
 
-def test_hover_lists_high_band_avg_low_in_order(page):
-    page.click("#tab-price")
-    page.locator("#ranges .chip", has_text="30일").click()
+def hover_items(page):
     drag = page.locator("#plot .nsewdrag").first
     drag.scroll_into_view_if_needed()  # 필터가 길면 차트가 화면 아래에 있다
     box = drag.bounding_box()
     page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
     page.wait_for_selector("#plot .hoverlayer .legend text", state="attached")
-    items = page.evaluate(
+    return page.evaluate(
         "Array.from(document.querySelectorAll('#plot .hoverlayer .legend text')).map(t => t.textContent)"
     )
-    labels = ["고가", "상한 80%", "하한 70%", "평균가", "저가"]
+
+
+def assert_order(items, labels):
     order = [next(i for i, item in enumerate(items) if item.startswith(label)) for label in labels]
     assert order == sorted(order), f"호버 순서가 다릅니다: {items}"
+
+
+def test_hover_lists_high_band_avg_low_in_order(page):
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    # 기본은 저가·고가 범위 기준 구간
+    assert_order(hover_items(page), ["고가", "구간 상단 50%", "구간 하단 30%", "평균가", "저가"])
+    page.click('#zones .chip[data-zone="high"]')
+    page.mouse.move(0, 0)
+    assert_order(hover_items(page), ["고가", "상한 80%", "하한 70%", "평균가", "저가"])
+
+
+def weighted_quantile(pairs, q):
+    pairs = sorted(pairs)
+    total = sum(w for _, w in pairs)
+    acc = 0.0
+    for value, weight in pairs:
+        acc += weight
+        if acc / total >= q:
+            return value
+    return pairs[-1][0]
+
+
+def test_range_zone_uses_representative_low(page, site):
+    """범위 기준 구간이 '대표 저가 + (고가 - 대표 저가) x 30~50%' 로 계산되는지 파이썬으로 다시 계산해 본다.
+
+    대표 저가는 묶음 저가를 그 묶음 평균가의 50% 밑으로는 보지 않게 보정한 뒤의 수량 가중 하위 25% 값이다.
+    """
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    species = page.evaluate("view.species")
+    rows = [dict(zip(pipeline.ROW_FIELDS, r)) for r in site["rows"]]
+    rows = [r for r in rows if r["species"] == species and r["state"] == "활" and r["pack"].lower() == "kg"
+            and (r["high"] or 0) > 0]
+    by_date = {}
+    for r in rows:
+        by_date.setdefault(r["date"], []).append(r)
+    expected = {}
+    for date, group in by_date.items():
+        high = max(r["high"] for r in group)
+        lows = [
+            (max(r["low"], r["avg"] * 0.5) if (r["avg"] or 0) > 0 else r["low"], r["qty"] if (r["qty"] or 0) > 0 else 1)
+            for r in group if (r["low"] or 0) > 0
+        ]
+        if not lows:
+            continue
+        low = weighted_quantile(lows, 0.25)
+        if low < high:
+            expected[date] = (round(low + (high - low) * 0.3), round(low + (high - low) * 0.5))
+    traces = trace_field(page, "y")
+    xs = page.evaluate("lastDays.map(d => d.date)")
+    lower = dict(zip(xs, traces["가성비 구간 (저가·고가 범위 30~50%)"]))
+    upper = dict(zip(xs, traces["구간 상단 50%"]))
+    checked = 0
+    for date, (lo, hi) in expected.items():
+        if date in lower and lower[date] is not None:
+            assert abs(lower[date] - lo) <= 1 and abs(upper[date] - hi) <= 1, date
+            checked += 1
+    assert checked > 0
+
+
+def test_zoom_buttons_narrow_range_and_rescale(page):
+    page.click("#tab-price")
+    page.locator("#ranges .chip", has_text="30일").click()
+    total = page.evaluate("lastDays.length")
+    assert page.is_disabled("#zoomOut") and page.is_disabled("#zoomReset")
+    page.click("#zoomIn")
+    xr = page.evaluate("view.xr")
+    assert xr and xr[1] - xr[0] + 1 < total
+    layout = page.evaluate("document.getElementById('plot').layout")
+    assert layout["xaxis"]["range"] == [xr[0] - 0.5, xr[1] + 0.5]
+    # 세로축은 보이는 구간의 값에 맞춰 다시 잡힌다
+    lo, hi = layout["yaxis"]["range"]
+    visible_high = [v for v in trace_field(page, "y")["고가"][xr[0]:xr[1] + 1] if v is not None]
+    assert lo <= min(visible_high) and hi >= max(visible_high)
+    page.click("#panLeft")
+    assert page.evaluate("view.xr")[0] <= xr[0]
+    page.click("#zoomReset")
+    assert page.evaluate("view.xr") is None
+    assert "/" + str(total) + "일" in page.inner_text("#zoomInfo")
+
+
+def test_week_table_modes_add_and_remove_species(page):
+    page.select_option("#weekMode", "top30")
+    rows = page.locator("#weekTable tbody tr")
+    assert 0 < rows.count() <= 30
+    sums = [number(t) for t in page.locator("#weekTable tbody td.sum").all_inner_texts()]
+    assert sums == sorted(sums, reverse=True)  # 경락량 순서
+    page.select_option("#weekMode", "base")
+    base = page.locator("#weekTable tbody tr").count()
+    assert base == len(pipeline.TABLE_ROWS)
+
+    candidates = page.evaluate("DATA.species.filter(s => !DATA.table.some(r => r[1] === s))")
+    if candidates:  # 샘플 데이터에는 기본 표에 없는 어종이 없다
+        add_and_remove(page, candidates[0], base)
+
+    page.fill("#weekAdd", "없는어종명")
+    page.click("#weekAddBtn")
+    assert "찾지 못했습니다" in page.inner_text("#weekAddMsg")
+
+
+def add_and_remove(page, target, base):
+    page.fill("#weekAdd", target)
+    page.click("#weekAddBtn")
+    assert page.locator("#weekTable tbody tr").count() == base + 1
+    assert page.locator(f'#weekTable tbody tr[data-species="{target}"] .remove').count() == 1
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-week")
+    assert page.locator(f'#weekTable tbody tr[data-species="{target}"]').count() == 1  # 새로고침 뒤에도 유지
+    page.click(f'#weekTable tbody tr[data-species="{target}"] .remove')
+    assert page.locator("#weekTable tbody tr").count() == base
+
+
+def test_week_table_state_switch(page):
+    page.locator("#weekStates .chip", has_text="선어").click()
+    assert "선어" in page.inner_text("#weekTitle")
+    page.locator("#weekStates .chip", has_text="전체").click()
+    assert page.inner_text("#weekTitle") == "노량진 전체 경락량"

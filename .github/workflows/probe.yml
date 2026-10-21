@@ -1,0 +1,41 @@
+name: Probe market site
+
+# 공식 홈페이지 접속 실패 원인을 가리기 위한 일회성 진단.
+on:
+  push:
+    branches: [claude/peaceful-newton-wcwt3x]
+    paths: [.github/workflows/probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Runner IP
+        run: curl -sS -m 10 https://ipinfo.io/json || true
+
+      - name: DNS
+        run: |
+          for h in www.susansijang.co.kr susansijang.co.kr; do echo "== $h"; getent ahosts $h || echo "resolve failed"; done
+
+      - name: TCP connect
+        run: |
+          for t in www.susansijang.co.kr:443 www.susansijang.co.kr:80 susansijang.co.kr:443 www.garak.co.kr:443 www.mof.go.kr:443 www.naver.com:443; do
+            h=${t%:*}; p=${t#*:}; s=$(date +%s.%N)
+            if timeout 15 bash -c "</dev/tcp/$h/$p" 2>/dev/null; then r=open; else r=FAIL; fi
+            printf '%-28s %s %.1fs\n' "$t" "$r" "$(echo "$(date +%s.%N) - $s" | bc)"
+          done
+
+      - name: HTTP (browser-like)
+        run: |
+          curl -sS -m 25 -o /dev/null -D - \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36" \
+            https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130 || true
+
+      - name: Route
+        run: |
+          sudo apt-get install -y -qq traceroute >/dev/null 2>&1 || true
+          sudo traceroute -T -p 443 -w 2 -q 1 -m 25 www.susansijang.co.kr || true

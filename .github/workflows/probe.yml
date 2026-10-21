@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2, 3]
+        n: [1]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,18 +35,18 @@ jobs:
           grep -n -i -E '<form|<input|excel|csrf|token|captcha|fn_|\.do|action=' page.html | sed 's/^\s*//' | cut -c1-220 | head -80
           grep -o -E 'src="[^"]+\.js[^"]*"' page.html | head -30
 
-      - name: Fetch 10/20 and 10/21 with current code
+      - name: Excel with page defaults
         run: |
-          python - <<'EOF'
-          import datetime, noryangjin
+          python - <<'EOF2'
+          import datetime, requests, noryangjin
           s = noryangjin.new_session(retries=1)
-          print("cookies", s.cookies.get_dict())
-          for d in (datetime.date(2026, 10, 20), datetime.date(2026, 10, 21)):
-              raw = noryangjin.download(s, "", d)
-              print(d, len(raw), raw[:8])
-              try:
-                  t = noryangjin.parse_table(raw)
-                  print("  rows", len(t))
-              except Exception as e:
-                  print("  parse error", e, raw[:300])
-          EOF
+          for unit in (10, 10000):
+              f = {"pageIndex": 1, "pageUnit": unit, "pageSize": unit, "kdfshNm": "", "kdfshCode": "",
+                   "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21"}
+              r = s.post(noryangjin.EXCEL_URL, data=f, timeout=60)
+              print(unit, r.status_code, len(r.content), len(noryangjin.parse_table(r.content)))
+          f = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "",
+               "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21"}
+          r = s.post(noryangjin.EXCEL_URL, data=f, timeout=60)
+          print("no kdfshCode", r.status_code, len(noryangjin.parse_table(r.content)))
+          EOF2

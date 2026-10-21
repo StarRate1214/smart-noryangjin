@@ -13,29 +13,40 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3]
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r requirements.txt
+
       - name: Runner IP
-        run: curl -sS -m 10 https://ipinfo.io/json || true
+        run: curl -sS -m 10 https://ipinfo.io/ip; echo
 
-      - name: DNS
+      - name: Page form
+        if: matrix.n == 1
         run: |
-          for h in www.susansijang.co.kr susansijang.co.kr; do echo "== $h"; getent ahosts $h || echo "resolve failed"; done
+          curl -sS -m 25 -A "Mozilla/5.0" https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130 -o page.html
+          wc -c page.html
+          grep -n -i -E '<form|<input|excel|csrf|token|captcha|fn_|\.do|action=' page.html | sed 's/^\s*//' | cut -c1-220 | head -80
+          grep -o -E 'src="[^"]+\.js[^"]*"' page.html | head -30
 
-      - name: TCP connect
+      - name: Fetch 10/20 and 10/21 with current code
         run: |
-          for t in www.susansijang.co.kr:443 www.susansijang.co.kr:80 susansijang.co.kr:443 www.garak.co.kr:443 www.mof.go.kr:443 www.naver.com:443; do
-            h=${t%:*}; p=${t#*:}; s=$(date +%s.%N)
-            if timeout 15 bash -c "</dev/tcp/$h/$p" 2>/dev/null; then r=open; else r=FAIL; fi
-            printf '%-28s %s %.1fs\n' "$t" "$r" "$(echo "$(date +%s.%N) - $s" | bc)"
-          done
-
-      - name: HTTP (browser-like)
-        run: |
-          curl -sS -m 25 -o /dev/null -D - \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36" \
-            https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130 || true
-
-      - name: Route
-        run: |
-          sudo apt-get install -y -qq traceroute >/dev/null 2>&1 || true
-          sudo traceroute -T -p 443 -w 2 -q 1 -m 25 www.susansijang.co.kr || true
+          python - <<'EOF'
+          import datetime, noryangjin
+          s = noryangjin.new_session(retries=1)
+          print("cookies", s.cookies.get_dict())
+          for d in (datetime.date(2026, 10, 20), datetime.date(2026, 10, 21)):
+              raw = noryangjin.download(s, "", d)
+              print(d, len(raw), raw[:8])
+              try:
+                  t = noryangjin.parse_table(raw)
+                  print("  rows", len(t))
+              except Exception as e:
+                  print("  parse error", e, raw[:300])
+          EOF

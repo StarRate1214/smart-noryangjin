@@ -1,0 +1,22 @@
+name: Probe market site
+on:
+  push:
+    branches: [claude/peaceful-newton-wcwt3x]
+    paths: [.github/workflows/probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2]
+    steps:
+      - name: page script
+        run: |
+          curl -sS -m 25 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141.0.0.0" https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130 -o page.html || exit 0
+          sed -n '100,330p' page.html | sed 's/JSESSIONID=[^"'"'"']*//g' | grep -v '^\s*$' | cut -c1-200
+          echo ===== select/inputs
+          grep -n -i -E 'kdfsh|<select|<option|multiple|alert|confirm' page.html | cut -c1-200 | head -60

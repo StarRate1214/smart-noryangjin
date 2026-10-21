@@ -3,7 +3,10 @@ name: Update market dashboard
 on:
   schedule:
     # 매일 06:45 KST (= 21:45 UTC 전날). 정각에는 예약 실행이 몰려 GitHub 가 몇 시간씩 늦추므로 45분에 둔다.
+    # 공식 홈페이지가 접속을 받지 않는 날이 있어 10:45, 14:45, 18:45 KST 에 한 번씩 더 돈다.
+    # 새로 받은 내용이 없으면 커밋하지 않으므로 반복해도 기록이 쌓이지 않는다.
     - cron: "45 21 * * *"
+    - cron: "45 1,5,9 * * *"
   workflow_dispatch:
     inputs:
       source:
@@ -13,7 +16,7 @@ on:
         default: ""
       backfill_days:
         description: "원본(data/daily)이 없는 과거 며칠을 채울지"
-        default: "0"
+        default: "7"
 
 permissions:
   contents: write
@@ -40,7 +43,8 @@ jobs:
         env:
           # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
           DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
-          BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '0' }}
+          # 접속 실패로 하루 이상 비어도 다음 실행이 원본 없는 날짜를 채우도록 기본 7일을 본다.
+          BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
         run: python pipeline.py
 
       # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.

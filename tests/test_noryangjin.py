@@ -1,3 +1,4 @@
+import datetime
 import io
 
 import pandas as pd
@@ -99,7 +100,7 @@ def test_new_session_retries_after_timeouts(monkeypatch):
 
 def test_new_session_gives_up_with_fetch_error(monkeypatch):
     calls, waits = patch_session_get(monkeypatch, failures=99)
-    with pytest.raises(noryangjin.FetchError, match="3번 접속하지 못했습니다"):
+    with pytest.raises(noryangjin.FetchError, match="3번 접속하지 못했습니다.*방화벽"):
         noryangjin.new_session()
     assert len(calls) == 3
 
@@ -108,3 +109,32 @@ def test_new_session_succeeds_first_try_without_waiting(monkeypatch):
     calls, waits = patch_session_get(monkeypatch, failures=0)
     noryangjin.new_session()
     assert len(calls) == 1 and waits == []
+
+
+def test_session_sends_browser_headers(monkeypatch):
+    patch_session_get(monkeypatch, failures=0)
+    session = noryangjin.new_session()
+    assert session.headers["Accept-Language"].startswith("ko-KR")
+    assert "Chrome/" in session.headers["User-Agent"]
+    assert "Referer" not in session.headers  # 화면은 주소창에서 바로 연 것처럼 연다
+
+
+def test_download_posts_the_page_form(monkeypatch):
+    sent = {}
+
+    class Resp(FakeResponse):
+        content = b"x"
+
+    def fake_post(self, url, data, headers, timeout):
+        sent.update(url=url, data=data, headers=headers)
+        return Resp()
+
+    monkeypatch.setattr(noryangjin.requests.Session, "post", fake_post)
+    noryangjin.download(noryangjin.requests.Session(), "", datetime.date(2026, 10, 21))
+    assert sent["url"] == noryangjin.EXCEL_URL
+    assert sent["data"] == {
+        "pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "",
+        "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21",
+    }
+    assert sent["headers"]["Referer"] == noryangjin.PAGE_URL
+    assert sent["headers"]["Origin"] == "https://www.susansijang.co.kr"

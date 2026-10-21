@@ -2,7 +2,7 @@
 
 '수산물가격정보 > 어종별경락시세'(miw3130) 화면의 엑셀 다운로드 요청을 그대로 재현한다.
     POST https://www.susansijang.co.kr/nsis/miw/ko/info/excel/miw3130
-    form: kdfshNm, kdfshCode(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
+    form: kdfshNm(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
 응답 표에는 어종((활)방어 식), 산지, 규격(1미 등), 포장(kg, S/P 등), 수량, 중량, 낙찰고가, 낙찰저가, 평균가 열이 있다.
 
 응답은 진짜 .xls/.xlsx 이거나 확장자만 xls 인 HTML 표일 수 있어 둘 다 처리한다.
@@ -18,13 +18,20 @@ import requests
 BASE_URL = "https://www.susansijang.co.kr/nsis/miw/ko/info"
 PAGE_URL = f"{BASE_URL}/miw3130"
 EXCEL_URL = f"{BASE_URL}/excel/miw3130"
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-)
+# 브라우저가 화면을 열고 엑셀 버튼을 누를 때와 같은 머리글을 보낸다.
+# 머리글이 비거나 어색한 요청은 사이트 방화벽이 비정상 접근으로 보고 IP 를 막을 수 있다.
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+POST_HEADERS = {"Origin": "https://www.susansijang.co.kr", "Referer": PAGE_URL}
 
-# 한 번에 요청하는 최대 행 수. 전체 어종 하루치는 수백 행이라 넉넉하게 둔다.
-PAGE_UNIT = 10000
+# 화면 폼의 기본값. 엑셀 응답은 이 값과 상관없이 조회 기간의 모든 행을 담는다(2026-10-21 확인).
+PAGE_UNIT = 10
 
 HIGH_COLUMNS = ["낙찰고가", "최고가", "고가"]
 NUMERIC_COLUMNS = ["수량", "중량", "낙찰고가", "낙찰저가", "평균가", "최고가", "최저가", "고가", "저가"]
@@ -40,13 +47,15 @@ class FetchError(RuntimeError):
 
 
 # 세션 요청 재시도: 사이트가 잠시 응답하지 않는 일이 있어(2026-10-06 연결 시간 초과) 간격을 늘려 가며 다시 시도한다.
+# 2026-10-21 에는 일부 실행기 IP 만 연결 단계에서 막히고 다른 IP 는 정상이었다. 같은 IP 로는 다시 시도해도
+# 풀리지 않으므로 이 재시도는 짧게 두고, 새 IP 로 다시 도는 일은 워크플로가 맡는다.
 SESSION_RETRIES = 3
 SESSION_WAIT = 10  # 초. 10초, 20초 순으로 기다린다
 
 
 def new_session(retries=SESSION_RETRIES, wait=SESSION_WAIT):
     session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT, "Referer": PAGE_URL})
+    session.headers.update(BROWSER_HEADERS)
     last = None
     for attempt in range(retries):
         if attempt:
@@ -58,21 +67,24 @@ def new_session(retries=SESSION_RETRIES, wait=SESSION_WAIT):
         except requests.RequestException as exc:
             last = exc
             print(f"세션 요청 실패 ({attempt + 1}/{retries}): {exc.__class__.__name__}")
-    raise FetchError(f"공식 홈페이지에 {retries}번 접속하지 못했습니다: {last}")
+    hint = ""
+    if isinstance(last, requests.ConnectTimeout):
+        hint = " (연결 단계에서 응답이 없습니다. 이 IP 가 사이트 방화벽에 막혔을 수 있습니다)"
+    raise FetchError(f"공식 홈페이지에 {retries}번 접속하지 못했습니다{hint}: {last}")
 
 
 def download(session, species, date):
     day = date.strftime("%Y.%m.%d")
+    # 화면의 dlmSearchCommand 폼이 보내는 필드만 보낸다.
     form = {
         "pageIndex": 1,
         "pageUnit": PAGE_UNIT,
         "pageSize": PAGE_UNIT,
         "kdfshNm": species,
-        "kdfshCode": species,
         "searchStartDe": day,
         "searchEndDe": day,
     }
-    response = session.post(EXCEL_URL, data=form, timeout=60)
+    response = session.post(EXCEL_URL, data=form, headers=POST_HEADERS, timeout=60)
     response.raise_for_status()
     return response.content
 
@@ -153,10 +165,7 @@ def fetch_day(session, species, date, retries=3):
     last = None
     for attempt in range(retries):
         try:
-            table = parse_table(download(session, species, date))
-            if len(table) >= PAGE_UNIT:
-                raise FetchError(f"{date} 응답이 {PAGE_UNIT}행에 닿아 잘렸을 수 있습니다")
-            return table
+            return parse_table(download(session, species, date))
         except requests.RequestException as exc:
             last = exc
             time.sleep(2 ** (attempt + 1))

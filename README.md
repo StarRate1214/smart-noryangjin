@@ -27,7 +27,8 @@
 | `templates/dashboard.html` | 페이지 틀. 필터·즐겨찾기·고가·가성비 구간 계산을 브라우저에서 처리 |
 | `data/daily/YYYY-MM-DD.csv` | 그날 거래된 모든 어종의 원본 경락 표 |
 | `index.html` | GitHub Pages가 서빙하는 대시보드 |
-| `.github/workflows/update.yml` | 매일 06:45 KST 자동 수집, 데이터 검사 후 커밋 |
+| `.github/workflows/update.yml` | 매일 06:45 KST 자동 수집(빠진 날은 10:45·14:45·18:45에 다시), 실패하면 새 실행기에서 재시도 |
+| `.github/workflows/collect.yml` | 수집 한 번: 수집, 데이터 검사, 커밋 |
 | `.github/workflows/ci.yml` | PR·`main` 푸시마다 린트, 단위·데이터 테스트, 브라우저 스모크 테스트 |
 | `tests/`, `docs/CI_PLAN.md` | 테스트와 CI 세부 계획 |
 
@@ -44,6 +45,8 @@ DATA_SOURCE=sample python pipeline.py  # 사이트 접속 없이 샘플 데이�
 
 1. 저장소 **Settings → Pages → Build and deployment**에서 Source를 `Deploy from a branch`, Branch를 `main` / `(root)`로 저장합니다.
 2. **Actions → Update market dashboard → Run workflow**를 한 번 수동 실행하면 이후 매일 06:45 KST에 갱신됩니다. GitHub 예약 실행은 붐비는 시간에 늦어질 수 있어, 정각을 피해 45분으로 두었습니다. 기록을 새로 채울 때는 `backfill_days`에 30을 넣습니다.
+
+   공식 홈페이지는 특정 IP의 연결을 막는 일이 있습니다(2026-10-21). 그래서 수집은 실패하면 새 실행기에서 두 번 더 시도하고, 원본이 없는 날짜는 7일 전까지 다음 실행이 채웁니다. 해외 IP가 계속 막히면 국내 PC를 self-hosted runner로 등록하고 저장소 변수 `UPDATE_RUNNER`에 그 라벨(예: `self-hosted`)을 넣으면 수집이 그 PC에서 돕니다.
 
 ## 수집 방식 (노량진수산물도매시장 공식 홈페이지)
 

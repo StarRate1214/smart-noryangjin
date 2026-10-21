@@ -22,7 +22,8 @@ def test_daily_file_shape(path):
     assert DATE_NAME.match(path.stem), f"파일 이름이 날짜 형식이 아닙니다: {path.name}"
     table = pd.read_csv(path)
     assert {"어종", "산지", "낙찰고가"} <= set(table.columns)
-    assert len(table) < noryangjin.PAGE_UNIT, "요청 한도에 닿아 잘렸을 수 있습니다"
+    # 엑셀은 화면 쪽 크기(10행)와 상관없이 전부 준다. 딱 10행이면 사이트가 쪽 단위로 자르기 시작한 것이다
+    assert len(table) != noryangjin.PAGE_UNIT, f"{path.name} 이 화면 한 쪽({noryangjin.PAGE_UNIT}행)만 담고 있습니다"
     # 전체 어종 요청이므로 한 종류만 들어 있으면 검색어가 잘못 들어간 것이다
     names = {noryangjin.split_name(v)[1] for v in table["어종"]}
     assert len(names) > 1, f"{path.name} 에 어종이 {names} 하나뿐입니다"

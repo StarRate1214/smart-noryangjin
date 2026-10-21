@@ -14,6 +14,7 @@
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
     BACKFILL_DAYS  원본이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
+    REFRESH_RECENT 0 이면 오늘·어제도 원본이 있으면 다시 받지 않음 (기본: 1)
     DATA_SOURCE    live(기본) 또는 sample
 """
 
@@ -62,6 +63,8 @@ TABLE_ROWS = [
 EXTRA_PRIORITY = ["왕게"]
 
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
+# 0 이면 오늘·어제도 원본이 이미 있을 때 다시 받지 않는다. 하루 중 재시도 실행이 같은 요청을 되풀이하지 않게 한다.
+REFRESH_RECENT = os.environ.get("REFRESH_RECENT", "1") != "0"
 
 WINDOW_DAYS = 30
 # 가성비 구간: 평균가(수량 가중) + (고가 - 평균가) x 60~80%.
@@ -100,6 +103,9 @@ def priority_species():
 
 def fetch_live(dates):
     """날짜별로 전체 어종 경락 표를 받아 data/daily/YYYY-MM-DD.csv 로 저장한다."""
+    if not dates:
+        print("받을 날짜가 없습니다(원본이 모두 있음)")
+        return
     try:
         session = noryangjin.new_session()
     except noryangjin.FetchError as exc:
@@ -125,11 +131,12 @@ def fetch_live(dates):
 
 
 def collect_live():
-    # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 항상 다시 받고,
+    # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 다시 받고(REFRESH_RECENT),
     # 그보다 앞선 날짜는 원본이 없는 것만 받는다.
     dates = recent_dates(max(BACKFILL_DAYS, 2))
     have = {p.stem for p in DAILY_DIR.glob("*.csv")}
-    fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + dates[-2:])
+    recent = dates[-2:] if REFRESH_RECENT else [d for d in dates[-2:] if d.isoformat() not in have]
+    fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + recent)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,82 @@
+name: Collect market data
+
+# update.yml 이 부르는 수집 한 번. 부를 때마다 새 실행기(대개 새 IP)에서 돈다.
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        type: number
+        default: 1
+      source:
+        type: string
+        default: live
+      backfill_days:
+        type: string
+        default: "7"
+      refresh_recent:
+        type: string
+        default: "1"
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    # 국내 PC 를 self-hosted runner 로 붙였다면 저장소 변수 UPDATE_RUNNER 에 그 라벨을 넣는다.
+    runs-on: ${{ vars.UPDATE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      # 앞선 시도가 막혔을 때 곧바로 다시 붙지 않도록 잠시 쉰다.
+      - name: Wait before retry
+        if: inputs.attempt > 1
+        run: sleep $(( ${{ inputs.attempt }} * 90 ))
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Runner IP
+        run: echo "시도 ${{ inputs.attempt }}, 실행기 IP $(curl -sS -m 10 https://ipinfo.io/ip || echo 알 수 없음)"
+
+      - name: Collect prices and build index.html
+        env:
+          DATA_SOURCE: ${{ inputs.source }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days }}
+          REFRESH_RECENT: ${{ inputs.refresh_recent }}
+        run: python pipeline.py
+
+      # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.
+      - name: Check data and page
+        run: pytest tests/test_data.py -q
+
+      # 실패 원인을 가린다. 연결 자체가 안 되면 이 IP 가 막힌 것이고, 연결은 되는데 실패하면 요청이나 응답 문제다.
+      - name: Diagnose connection
+        if: failure()
+        run: |
+          if timeout 15 bash -c '</dev/tcp/www.susansijang.co.kr/443' 2>/dev/null; then
+            echo "::warning::443 연결은 됩니다. 요청 형식이나 응답 해석을 살펴보세요."
+          else
+            echo "::warning::443 연결이 되지 않습니다. 이 실행기 IP 가 사이트 방화벽에 막혔을 수 있습니다."
+          fi
+
+      - name: Upload unparsed response
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-response-${{ inputs.attempt }}
+          path: debug/
+          if-no-files-found: ignore
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data index.html
+          git diff --cached --quiet || git commit -m "chore: update market data $(TZ=Asia/Seoul date +%F)"
+          git push

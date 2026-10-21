@@ -1,52 +1,21 @@
 name: Probe market site
-
-# 공식 홈페이지 접속 실패 원인을 가리기 위한 일회성 진단.
 on:
   push:
     branches: [claude/peaceful-newton-wcwt3x]
     paths: [.github/workflows/probe.yml]
-
 permissions:
   contents: read
-
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        n: [1]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q -r requirements.txt
-
-      - name: Runner IP
-        run: curl -sS -m 10 https://ipinfo.io/ip; echo
-
-      - name: Page form
-        if: matrix.n == 1
-        run: |
-          curl -sS -m 25 -A "Mozilla/5.0" https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130 -o page.html
-          wc -c page.html
-          grep -n -i -E '<form|<input|excel|csrf|token|captcha|fn_|\.do|action=' page.html | sed 's/^\s*//' | cut -c1-220 | head -80
-          grep -o -E 'src="[^"]+\.js[^"]*"' page.html | head -30
-
-      - name: Excel with page defaults
-        run: |
-          python - <<'EOF2'
-          import datetime, requests, noryangjin
-          s = noryangjin.new_session(retries=1)
-          for unit in (10, 10000):
-              f = {"pageIndex": 1, "pageUnit": unit, "pageSize": unit, "kdfshNm": "", "kdfshCode": "",
-                   "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21"}
-              r = s.post(noryangjin.EXCEL_URL, data=f, timeout=60)
-              print(unit, r.status_code, len(r.content), len(noryangjin.parse_table(r.content)))
-          f = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "",
-               "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21"}
-          r = s.post(noryangjin.EXCEL_URL, data=f, timeout=60)
-          print("no kdfshCode", r.status_code, len(noryangjin.parse_table(r.content)))
-          EOF2
+      - run: pip install -q -r requirements.txt -r requirements-test.txt
+      - run: rm -f data/daily/2026-10-2*.csv && python pipeline.py && wc -l data/daily/2026-10-2*.csv && pytest tests/test_data.py -q
+        env:
+          REFRESH_RECENT: "0"
+          BACKFILL_DAYS: "4"

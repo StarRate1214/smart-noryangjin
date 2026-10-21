@@ -43,9 +43,9 @@ PR마다 수집·해석 코드와 대시보드 페이지가 깨지지 않았는�
   2. **browser:** `checks`가 통과한 뒤에만 돕니다. `~/.cache/ms-playwright`를 Playwright 버전으로 캐시하고, `playwright install --with-deps chromium` 후 `pytest -m browser`를 돌립니다. 실패하면 스크린샷을 아티팩트로 올립니다.
 - **캐시:** `actions/setup-python`의 pip 캐시에 `cache-dependency-path: requirements*.txt`를 지정합니다.
 
-### `update.yml`(매일 수집)
+### `update.yml`(매일 수집)과 `collect.yml`(수집 한 번)
 
-`python pipeline.py` 다음, 커밋 직전에 `pytest tests/test_data.py`를 돌립니다. 원본 헤더, 폴더와 어종 이름 일치, `index.html`의 데이터 JSON이 정상인지 확인하고, 실패하면 커밋하지 않습니다. 여기에는 `requirements-test.txt`(pytest만)만 설치해 Playwright는 받지 않습니다.
+`update.yml`은 `collect.yml`을 부릅니다. 한 시도가 실패하면 새 실행기(대개 새 IP)에서 최대 두 번 더 돕니다. 2026-10-21에 일부 실행기 IP만 연결 단계에서 막혔고 같은 IP로는 다시 시도해도 풀리지 않았기 때문입니다. 06:45 KST 수집과 수동 실행은 오늘·어제를 다시 받고, 10:45·14:45·18:45 KST 재시도는 원본이 빠진 날짜만 받습니다(`REFRESH_RECENT=0`). 각 시도는 `python pipeline.py` 다음, 커밋 직전에 `pytest tests/test_data.py`를 돌립니다. 원본 헤더, 폴더와 어종 이름 일치, `index.html`의 데이터 JSON이 정상인지 확인하고, 실패하면 커밋하지 않습니다. 여기에는 `requirements-test.txt`(pytest만)만 설치해 Playwright는 받지 않습니다.
 
 ## 의존성과 설정 파일
 

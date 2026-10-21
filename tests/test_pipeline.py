@@ -120,6 +120,28 @@ def test_collect_live_default_fetches_today_and_yesterday(daily_dir, monkeypatch
     assert calls == [FROZEN_TODAY - datetime.timedelta(days=1), FROZEN_TODAY]
 
 
+def test_collect_live_without_refresh_skips_recent_dates_already_saved(daily_dir, monkeypatch):
+    monkeypatch.setattr(pipeline, "BACKFILL_DAYS", 3)
+    monkeypatch.setattr(pipeline, "REFRESH_RECENT", False)
+    day = lambda n: FROZEN_TODAY - datetime.timedelta(days=n)  # noqa: E731
+    for n in (2, 0):
+        write_daily(daily_dir, day(n))
+    calls = []
+    monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
+
+    pipeline.collect_live()
+
+    assert calls == [day(1)]
+
+
+def test_fetch_live_with_no_dates_does_not_contact_the_site(daily_dir, monkeypatch):
+    def unreachable():
+        raise AssertionError("세션을 열면 안 됩니다")
+
+    monkeypatch.setattr(pipeline.noryangjin, "new_session", unreachable)
+    pipeline.fetch_live([])
+
+
 def test_fetch_live_requests_all_species_and_saves_by_date(daily_dir, monkeypatch):
     requested = []
 

@@ -3,9 +3,9 @@ name: Update market dashboard
 on:
   schedule:
     # 매일 06:45 KST (= 21:45 UTC 전날). 정각에는 예약 실행이 몰려 GitHub 가 몇 시간씩 늦추므로 45분에 둔다.
-    # 공식 홈페이지가 접속을 받지 않는 날이 있어 10:45, 14:45, 18:45 KST 에 한 번씩 더 돈다.
-    # 새로 받은 내용이 없으면 커밋하지 않으므로 반복해도 기록이 쌓이지 않는다.
     - cron: "45 21 * * *"
+    # 10:45, 14:45, 18:45 KST 에는 원본이 빠진 날짜만 받는다. 아침 수집이 실패한 날을 채우는 용도라
+    # 원본이 모두 있으면 사이트에 요청하지 않는다.
     - cron: "45 1,5,9 * * *"
   workflow_dispatch:
     inputs:
@@ -25,44 +25,34 @@ concurrency:
   group: update-dashboard
   cancel-in-progress: false
 
+# 2026-10-21 에는 일부 실행기 IP 만 연결 단계에서 막혔다. 같은 실행기에서 다시 시도해도 소용없으므로
+# 실패하면 새 실행기에서 최대 두 번 더 돈다. 아침 수집과 수동 실행은 오늘·어제를 다시 받고(refresh_recent=1),
+# 낮 재시도는 빠진 날짜만 받는다. failure() 는 앞선 모든 시도를 보므로 바로 앞 시도의 결과로 판단한다.
 jobs:
-  update:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  attempt-1:
+    uses: ./.github/workflows/collect.yml
+    with:
+      attempt: 1
+      source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
+      backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
+      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements*.txt
+  attempt-2:
+    needs: attempt-1
+    if: always() && needs.attempt-1.result == 'failure'
+    uses: ./.github/workflows/collect.yml
+    with:
+      attempt: 2
+      source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
+      backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
+      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
 
-      - run: pip install -r requirements.txt -r requirements-test.txt
-
-      - name: Collect prices and build index.html
-        env:
-          # 저장소 Settings > Secrets and variables > Actions > Variables 에서 지정
-          DATA_SOURCE: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
-          # 접속 실패로 하루 이상 비어도 다음 실행이 원본 없는 날짜를 채우도록 기본 7일을 본다.
-          BACKFILL_DAYS: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
-        run: python pipeline.py
-
-      # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.
-      - name: Check data and page
-        run: pytest tests/test_data.py -q
-
-      - name: Upload unparsed response
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-response
-          path: debug/
-          if-no-files-found: ignore
-
-      - name: Commit changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data index.html
-          git diff --cached --quiet || git commit -m "chore: update market data $(TZ=Asia/Seoul date +%F)"
-          git push
+  attempt-3:
+    needs: attempt-2
+    if: always() && needs.attempt-2.result == 'failure'
+    uses: ./.github/workflows/collect.yml
+    with:
+      attempt: 3
+      source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
+      backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
+      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}

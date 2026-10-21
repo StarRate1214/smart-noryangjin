@@ -133,7 +133,7 @@ def test_download_posts_the_page_form(monkeypatch):
     noryangjin.download(noryangjin.requests.Session(), "", datetime.date(2026, 10, 21))
     assert sent["url"] == noryangjin.EXCEL_URL
     assert sent["data"] == {
-        "pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "",
+        "pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "", "kdfshCode": "",
         "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21",
     }
     assert sent["headers"]["Referer"] == noryangjin.PAGE_URL

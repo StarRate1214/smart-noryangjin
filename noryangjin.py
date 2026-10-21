@@ -2,7 +2,7 @@
 
 '수산물가격정보 > 어종별경락시세'(miw3130) 화면의 엑셀 다운로드 요청을 그대로 재현한다.
     POST https://www.susansijang.co.kr/nsis/miw/ko/info/excel/miw3130
-    form: kdfshNm(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
+    form: kdfshNm, kdfshCode(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
 응답 표에는 어종((활)방어 식), 산지, 규격(1미 등), 포장(kg, S/P 등), 수량, 중량, 낙찰고가, 낙찰저가, 평균가 열이 있다.
 
 응답은 진짜 .xls/.xlsx 이거나 확장자만 xls 인 HTML 표일 수 있어 둘 다 처리한다.
@@ -75,12 +75,15 @@ def new_session(retries=SESSION_RETRIES, wait=SESSION_WAIT):
 
 def download(session, species, date):
     day = date.strftime("%Y.%m.%d")
-    # 화면의 dlmSearchCommand 폼이 보내는 필드만 보낸다.
+    # 화면의 dlmSearchCommand 폼이 보내는 필드를 그대로 보낸다. 어종 select(kdfshCode)도 폼 안에 있어 함께 간다.
+    # 화면 스크립트(fnInputValidate)는 어종이 비면 '어종을 선택해 주세요' 경고를 띄우고 막지만, 서버는 빈 어종을
+    # 전체 어종으로 처리한다(2026-10-21 확인). 화면 목록은 주요 29종뿐이라 전체를 받으려면 비워서 보내야 한다.
     form = {
         "pageIndex": 1,
         "pageUnit": PAGE_UNIT,
         "pageSize": PAGE_UNIT,
         "kdfshNm": species,
+        "kdfshCode": species,
         "searchStartDe": day,
         "searchEndDe": day,
     }

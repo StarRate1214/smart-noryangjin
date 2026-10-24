@@ -45,7 +45,7 @@ PR마다 수집·해석 코드와 대시보드 페이지가 깨지지 않았는�
 
 ### `update.yml`(매일 수집)과 `collect.yml`(수집 한 번)
 
-`update.yml`은 `collect.yml`을 부릅니다. 한 시도가 실패하면 새 실행기(대개 새 IP)에서 최대 두 번 더 돕니다. 2026-10-21에 일부 실행기 IP만 연결 단계에서 막혔고 같은 IP로는 다시 시도해도 풀리지 않았기 때문입니다. 06:45 KST 수집과 수동 실행은 오늘·어제를 다시 받고, 10:45·14:45·18:45 KST 재시도는 원본이 빠진 날짜만 받습니다(`REFRESH_RECENT=0`). 각 시도는 `python pipeline.py` 다음, 커밋 직전에 `pytest tests/test_data.py`를 돌립니다. 원본 헤더, 폴더와 어종 이름 일치, `index.html`의 데이터 JSON이 정상인지 확인하고, 실패하면 커밋하지 않습니다. 여기에는 `requirements-test.txt`(pytest만)만 설치해 Playwright는 받지 않습니다.
+`update.yml`은 `collect.yml`을 부릅니다. 한 시도의 수집 단계가 실패하면 새 실행기(대개 새 IP)에서 최대 두 번 더 돕니다. 앞선 시도의 수집 실패는 경고만 남기고 job 을 통과시켜, 재시도가 성공하면 실행 전체가 초록색으로 끝납니다. 세 번째 시도까지 실패해야 실행이 실패합니다. 2026-10-21에 일부 실행기 IP만 연결 단계에서 막혔고 같은 IP로는 다시 시도해도 풀리지 않았기 때문입니다. 06:45 KST 수집과 수동 실행은 오늘·어제를 다시 받고, 10:45·14:45·18:45 KST 재시도는 원본이 빠진 날짜만 받습니다(`REFRESH_RECENT=0`). 각 시도는 `python pipeline.py` 다음, 커밋 직전에 `pytest tests/test_data.py`를 돌립니다. 원본 헤더, 폴더와 어종 이름 일치, `index.html`의 데이터 JSON이 정상인지 확인하고, 실패하면 커밋하지 않습니다. 여기에는 `requirements-test.txt`(pytest만)만 설치해 Playwright는 받지 않습니다.
 
 ## 의존성과 설정 파일
 

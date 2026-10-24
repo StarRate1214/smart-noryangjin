@@ -27,7 +27,8 @@ concurrency:
 
 # 2026-10-21 에는 일부 실행기 IP 만 연결 단계에서 막혔다. 같은 실행기에서 다시 시도해도 소용없으므로
 # 실패하면 새 실행기에서 최대 두 번 더 돈다. 아침 수집과 수동 실행은 오늘·어제를 다시 받고(refresh_recent=1),
-# 낮 재시도는 빠진 날짜만 받는다. failure() 는 앞선 모든 시도를 보므로 바로 앞 시도의 결과로 판단한다.
+# 낮 재시도는 빠진 날짜만 받는다. 앞선 시도의 접속 실패는 job 을 실패시키지 않고 collected=false 로만 알리므로,
+# 다음 시도는 그 값을 보고 돈다. 데이터 검사나 커밋이 실패하면 job 이 실패하고 재시도하지 않는다(IP 문제가 아니다).
 jobs:
   attempt-1:
     uses: ./.github/workflows/collect.yml
@@ -39,7 +40,7 @@ jobs:
 
   attempt-2:
     needs: attempt-1
-    if: always() && needs.attempt-1.result == 'failure'
+    if: needs.attempt-1.outputs.collected != 'true'
     uses: ./.github/workflows/collect.yml
     with:
       attempt: 2
@@ -49,10 +50,11 @@ jobs:
 
   attempt-3:
     needs: attempt-2
-    if: always() && needs.attempt-2.result == 'failure'
+    if: needs.attempt-2.outputs.collected != 'true'
     uses: ./.github/workflows/collect.yml
     with:
       attempt: 3
+      final: true
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
       refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}

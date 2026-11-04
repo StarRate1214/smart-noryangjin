@@ -2,9 +2,11 @@
 
 외부 네트워크 없이 돌도록 cdn.plot.ly 요청은 plotly 파이썬 패키지에 든 plotly.js 로 돌려준다.
 """
+import base64
 import datetime
 import functools
 import http.server
+import json
 import os
 import re
 import threading
@@ -452,3 +454,76 @@ def test_saved_series_gains_new_reference_lines_once(page):
     page.wait_for_selector("#weekTable tbody tr", state="attached")
     page.click("#tab-price")
     assert not page.is_checked('#series input[data-series="m3"]')  # 한 번 켠 뒤로는 사용자의 선택을 따른다
+
+
+def open_alert_tab(page):
+    page.evaluate("() => { localStorage.removeItem('nr.alertDraft'); localStorage.removeItem('nr.ghToken'); }")
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-alert")
+
+
+def test_alert_rule_editor_builds_config(page, site):
+    open_alert_tab(page)
+    assert "저장된 설정과 같습니다" in page.inner_text("#saveState")
+    page.click("#ruleAdd")
+    rule = page.locator(".rule").first
+    rule.locator("input[type=text]").fill("*")
+    rule.locator("input[type=text]").dispatch_event("change")
+    selects = rule.locator("select")
+    selects.nth(1).select_option("volume")      # 항목: 경락량
+    selects.nth(3).select_option("5")           # 기준: 직전 5거래일 평균
+    selects.nth(4).select_option("up")          # 방향: 상승
+    rule.locator("input[type=number]").fill("50")
+    rule.locator("input[type=number]").dispatch_event("change")
+    assert "직전 5거래일 평균보다 50% 이상 오르면" in page.locator(".rule .says").first.inner_text()
+    config = json.loads(page.inner_text("#jsonPreview"))
+    saved = config["rules"][0]
+    assert {k: saved[k] for k in ("species", "metric", "base_days", "direction", "unit", "value")} == {
+        "species": "*", "metric": "volume", "base_days": 5, "direction": "up", "unit": "pct", "value": 50}
+    assert "저장하지 않은 변경" in page.inner_text("#saveState")
+
+    page.locator(".rule select").nth(2).select_option("level")  # 조건 종류: 수준
+    level = json.loads(page.inner_text("#jsonPreview"))["rules"][0]
+    assert level["type"] == "level" and level["op"] == "above" and "base_days" not in level
+    # 임시 저장된 편집은 새로 고쳐도 남는다
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-alert")
+    assert page.locator(".rule").count() == 1
+
+
+def test_alert_editor_flags_unknown_species_and_blocks_save(page):
+    open_alert_tab(page)
+    page.click("#ruleAdd")
+    box = page.locator(".rule input[type=text]").first
+    box.fill("없는물고기")
+    box.dispatch_event("change")
+    assert "최근 거래된 어종이 아닙니다" in page.inner_text("#ruleErrors")
+    assert page.is_disabled("#saveGitHub")
+
+
+def test_alert_rules_save_to_github_with_token(page):
+    calls = []
+
+    def github(route):
+        req = route.request
+        calls.append((req.method, req.headers.get("authorization"), req.post_data))
+        if req.method == "GET":
+            route.fulfill(status=200, content_type="application/json", body=json.dumps({"sha": "abc"}))
+        else:
+            route.fulfill(status=200, content_type="application/json", body="{}")
+
+    page.context.route("https://api.github.com/**", github)
+    open_alert_tab(page)
+    page.click("#ruleAdd")
+    page.fill("#ghToken", "tok")
+    page.click("#saveGitHub")
+    page.wait_for_function("document.getElementById('saveState').textContent.includes('저장했습니다')")
+    method, auth, body = calls[-1]
+    assert method == "PUT" and auth == "Bearer tok"
+    payload = json.loads(body)
+    assert payload["sha"] == "abc" and payload["branch"] == "main"
+    saved = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
+    assert len(saved["rules"]) == 1 and saved["auto"]["sensitivity"] == "normal"
+    assert page.is_disabled("#saveGitHub")  # 저장한 뒤에는 바뀐 것이 없다

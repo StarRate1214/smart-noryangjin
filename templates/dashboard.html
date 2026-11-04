@@ -143,6 +143,35 @@
   footer { color: var(--muted); font-size: .8rem; margin-top: 18px; }
   footer a { color: var(--navy); }
   [hidden] { display: none !important; }
+  /* 알림 설정 */
+  .fired { list-style: none; margin: 8px 0 0; padding: 0; }
+  .fired li { padding: 8px 10px; border-left: 4px solid var(--line); background: #fff; margin-bottom: 6px; border-radius: 6px; font-size: .9rem; }
+  .fired li.up { border-left-color: #E03131; }
+  .fired li.down { border-left-color: #1C7ED6; }
+  .fired .none { color: var(--muted); border-left-color: var(--mint); }
+  .steps { margin: 6px 0 0; padding-left: 20px; font-size: .9rem; line-height: 1.6; }
+  code { background: var(--cream); padding: 1px 5px; border-radius: 4px; font-size: .85em; word-break: break-all; }
+  .alert-auto { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+  .rule { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px; margin-top: 8px;
+          border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .rule.off { opacity: .55; }
+  .rule select, .rule input[type="number"], .rule input[type="text"], .save-row input {
+    height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font: inherit; font-size: .88rem;
+    background: #fff; color: var(--text); max-width: 100%; }
+  .rule input[type="text"] { width: 130px; }
+  .rule input[type="number"] { width: 96px; }
+  .rule .says { flex-basis: 100%; color: var(--navy); font-size: .82rem; }
+  .rule .remove { margin-left: auto; }
+  button.add, .step-btn { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
+                          height: 32px; padding: 0 12px; font: inherit; font-size: .85rem; cursor: pointer;
+                          display: inline-flex; align-items: center; text-decoration: none; }
+  button.add { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .save-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+  .save-row input { flex: 1 1 220px; }
+  .save-state { margin: 4px 0; font-size: .88rem; color: var(--navy); }
+  .save-state.dirty { color: #E03131; }
+  .errors { color: #E03131; font-size: .85rem; margin: 4px 0; padding-left: 18px; }
+  .json { background: var(--cream); border-radius: 8px; padding: 10px; font-size: .75rem; overflow-x: auto; max-height: 220px; }
 </style>
 </head>
 <body>
@@ -152,6 +181,7 @@
     <nav role="tablist">
       <button type="button" role="tab" id="tab-week" aria-selected="true" data-view="week">주간 경락량</button>
       <button type="button" role="tab" id="tab-price" aria-selected="false" data-view="price">어종별 시세</button>
+      <button type="button" role="tab" id="tab-alert" aria-selected="false" data-view="alert">알림 설정</button>
     </nav>
   </div>
 </header>
@@ -237,6 +267,58 @@
     </div>
   </section>
 
+  <section id="view-alert" role="tabpanel" aria-labelledby="tab-alert" hidden>
+    <div class="panel">
+      <h2 id="firedTitle">최근 알림</h2>
+      <ul class="fired" id="fired"></ul>
+    </div>
+
+    <div class="panel">
+      <h2>휴대폰으로 받기 (ntfy)</h2>
+      <ol class="steps">
+        <li>휴대폰에 <b>ntfy</b> 앱을 설치합니다(안드로이드 Play 스토어·F-Droid, 아이폰 App Store).</li>
+        <li>앱에서 <b>+</b>를 눌러 저장소 Secrets 의 <code>NTFY_TOPIC</code>에 넣은 주제 이름을 구독합니다. 주제 이름은 남이 짐작하지 못하게 길게 정하세요(예: <code>noryangjin-7f3k9q2m</code>).</li>
+        <li>매일 수집이 끝나면 아래 규칙에 걸린 새 알림이 그 주제로 갑니다. 같은 날 같은 알림은 한 번만 갑니다.</li>
+      </ol>
+    </div>
+
+    <div class="panel">
+      <h2>자동 감시</h2>
+      <div class="alert-auto">
+        <label class="toggle"><input type="checkbox" id="autoOn"> 표본이 많은 어종 자동 감시</label>
+        <label class="tool"><span>민감도</span>
+          <select id="autoLevel">
+            <option value="low">낮음 (큰 변화만)</option>
+            <option value="normal">보통</option>
+            <option value="high">높음 (작은 변화도)</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">직전 10거래일 하루 거래 건수가 5건 이상인 어종·상태에서, 평균가나 경락량이 평소 움직이는 폭보다 크게 벗어나면 알립니다. 보통 민감도는 하루 1~2건 정도입니다.</p>
+    </div>
+
+    <div class="panel">
+      <div class="chart-head"><h2>내 알림 규칙</h2><button type="button" class="add" id="ruleAdd">＋ 규칙 추가</button></div>
+      <div id="rules"></div>
+      <p class="hint">어종에 <b>*</b>를 넣으면 표본이 많은 어종 전체에 같은 규칙을 씁니다. 가격은 kg 단위 거래 기준(평균가는 수량 가중)이고, 경락량 단위는 kg입니다. '직전 N거래일 평균'은 그 어종이 거래된 직전 N일의 평균입니다.</p>
+    </div>
+
+    <div class="panel">
+      <h2>저장</h2>
+      <p class="save-state" id="saveState" role="status"></p>
+      <ul class="errors" id="ruleErrors"></ul>
+      <div class="save-row">
+        <input type="password" id="ghToken" placeholder="GitHub 토큰 (이 브라우저에만 저장)" aria-label="GitHub 토큰" autocomplete="off">
+        <button type="button" class="add" id="saveGitHub">GitHub에 저장</button>
+        <button type="button" class="step-btn" id="copyJson">설정 복사</button>
+        <a class="step-btn" id="editLink" target="_blank" rel="noopener">GitHub에서 직접 편집</a>
+        <button type="button" class="step-btn" id="resetDraft">저장된 설정으로 되돌리기</button>
+      </div>
+      <p class="hint">규칙은 저장소의 <code>alerts.json</code>에 저장되고, 다음 수집부터 적용됩니다. 'GitHub에 저장'에는 이 저장소의 Contents 읽기·쓰기 권한만 준 fine-grained 토큰을 쓰세요. 토큰은 이 브라우저에만 남고 페이지에는 들어가지 않습니다. 토큰 없이 쓰려면 '설정 복사' 후 'GitHub에서 직접 편집'에 붙여 넣으면 됩니다.</p>
+      <pre class="json" id="jsonPreview"></pre>
+    </div>
+  </section>
+
   <footer id="footer"></footer>
 </main>
 
@@ -290,6 +372,7 @@ function showView(name) {
   document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === name));
   document.getElementById("view-week").hidden = name !== "week";
   document.getElementById("view-price").hidden = name !== "price";
+  document.getElementById("view-alert").hidden = name !== "alert";
   save("nr.view", name);
   if (name === "price") updatePrice();
 }
@@ -998,6 +1081,189 @@ function updatePrice() {
   renderChart(days);
 }
 
+/* ------------------------------------------------------------------ 알림 설정 */
+// 규칙은 저장소의 alerts.json 에 있고, 매일 수집 뒤 alerts.py 가 판정해 ntfy 로 보낸다.
+// 여기서는 규칙을 편집해 그 파일로 저장한다. 판정 규칙은 alerts.py 의 validate, describe_rule 과 같다.
+const METRIC_NAMES = { avg: "평균가", high: "고가", low: "저가", volume: "경락량" };
+const AUTO_LEVELS = ["low", "normal", "high"];
+let savedAlerts = JSON.stringify((DATA.alerts || {}).config || { auto: { enabled: true, sensitivity: "normal" }, rules: [] });
+let alertDraft = load("nr.alertDraft", null) || JSON.parse(savedAlerts);
+const unitOf = (metric) => (metric === "volume" ? "kg" : "원");
+
+function newRule() {
+  return { id: "r" + Date.now().toString(36), enabled: true, species: view.species || "*", state: "활",
+           metric: "avg", type: "change", base_days: 1, direction: "both", unit: "pct", value: 20 };
+}
+
+function describeRule(r) {
+  const metric = METRIC_NAMES[r.metric] || r.metric, unit = unitOf(r.metric);
+  const target = `${r.species === "*" ? "표본이 많은 어종 전체" : speciesLabel(r.species)}(${r.state ? r.state : "전체"})`;
+  if (r.type === "level") return `${target}의 ${metric}가 ${fmt(r.value)}${unit} ${r.op === "above" ? "이상" : "이하"}이면 알림`;
+  const base = r.base_days === 1 ? "직전 거래일" : `직전 ${r.base_days}거래일 평균`;
+  const amount = r.unit === "pct" ? `${r.value}%` : `${fmt(r.value)}${unit}`;
+  const way = { up: "오르면", down: "내리면", both: "오르거나 내리면" }[r.direction];
+  return `${target}의 ${metric}가 ${base}보다 ${amount} 이상 ${way} 알림`;
+}
+
+function validateAlerts(config) {
+  const errors = [];
+  config.rules.forEach((r, i) => {
+    const where = `규칙 ${i + 1}`;
+    if (!r.species) errors.push(`${where}: 어종을 고르세요(* 는 표본이 많은 어종 전체)`);
+    else if (r.species !== "*" && !DATA.species.includes(r.species)) errors.push(`${where}: '${r.species}'은(는) 최근 거래된 어종이 아닙니다`);
+    if (!(typeof r.value === "number" && Number.isFinite(r.value) && r.value >= 0)) errors.push(`${where}: 값은 0 이상의 숫자여야 합니다`);
+  });
+  return errors;
+}
+
+function cleanConfig(config) {
+  // 저장 형식: 규칙 종류에 맞는 필드만 남긴다
+  return {
+    auto: { enabled: !!config.auto.enabled, sensitivity: config.auto.sensitivity },
+    rules: config.rules.map((r) => {
+      const base = { id: r.id, enabled: !!r.enabled, species: r.species, state: r.state, metric: r.metric, type: r.type };
+      return r.type === "level" ? { ...base, op: r.op || "above", value: r.value }
+        : { ...base, base_days: r.base_days, direction: r.direction, unit: r.unit, value: r.value };
+    }),
+  };
+}
+
+const configText = () => JSON.stringify(cleanConfig(alertDraft), null, 2) + "\n";
+
+function select(options, value, onChange, label) {
+  const s = el("select", { "aria-label": label });
+  options.forEach(([v, text]) => { const o = el("option", { value: String(v) }, text); if (String(v) === String(value)) o.selected = true; s.append(o); });
+  s.addEventListener("change", () => onChange(s.value));
+  return s;
+}
+
+function changeDraft() { save("nr.alertDraft", alertDraft); renderAlertEditor(); }
+
+function renderRules() {
+  const box = document.getElementById("rules");
+  box.replaceChildren();
+  if (!alertDraft.rules.length) box.append(el("p", { class: "hint" }, "아직 규칙이 없습니다. '＋ 규칙 추가'로 만드세요."));
+  alertDraft.rules.forEach((r, i) => {
+    const row = el("div", { class: "rule" + (r.enabled ? "" : " off"), "data-rule": String(i) });
+    const set = (key, cast = (v) => v) => (v) => { r[key] = cast(v); changeDraft(); };
+    const on = el("input", { type: "checkbox", "aria-label": "규칙 사용" });
+    on.checked = r.enabled;
+    on.addEventListener("change", () => { r.enabled = on.checked; changeDraft(); });
+    const species = el("input", { type: "text", list: "ruleSpeciesList", value: r.species, "aria-label": "어종", placeholder: "어종 또는 *" });
+    species.addEventListener("change", () => {
+      const q = species.value.trim();
+      // '킹크랩'처럼 화면 이름으로 적어도 공식 표기로 바꾼다
+      const hit = q === "*" ? "*" : DATA.species.find((s) => s === q || speciesLabel(s) === q || LABELS[s] === q);
+      r.species = hit || q; changeDraft();
+    });
+    row.append(el("label", { class: "toggle" }), species);
+    row.firstChild.append(on, "사용");
+    row.append(
+      select([["활", "활어"], ["선", "선어"], ["", "전체"]], r.state, set("state"), "상태"),
+      select(Object.entries(METRIC_NAMES), r.metric, set("metric"), "항목"),
+      select([["change", "변화"], ["level", "수준"]], r.type, (v) => {
+        r.type = v;
+        if (v === "level") { r.op = r.op || "above"; r.value = r.metric === "volume" ? 1000 : 30000; }
+        else { Object.assign(r, { base_days: r.base_days || 1, direction: r.direction || "both", unit: "pct", value: 20 }); }
+        changeDraft();
+      }, "조건 종류"),
+    );
+    const value = el("input", { type: "number", min: "0", step: "any", value: String(r.value), "aria-label": "값" });
+    value.addEventListener("change", () => { r.value = value.value === "" ? NaN : Number(value.value); changeDraft(); });
+    if (r.type === "level") {
+      row.append(value, el("span", {}, unitOf(r.metric)),
+        select([["above", "이상"], ["below", "이하"]], r.op, set("op"), "이상 또는 이하"));
+    } else {
+      row.append(
+        select([[1, "직전 거래일"], [5, "직전 5거래일 평균"], [10, "직전 10거래일 평균"], [20, "직전 20거래일 평균"]], r.base_days, set("base_days", Number), "기준"),
+        select([["up", "상승"], ["down", "하락"], ["both", "상승·하락"]], r.direction, set("direction"), "방향"),
+        value,
+        select([["pct", "%"], ["abs", unitOf(r.metric)]], r.unit, set("unit"), "단위"),
+      );
+    }
+    const remove = el("button", { type: "button", class: "step-btn remove", "aria-label": "규칙 삭제" }, "삭제");
+    remove.addEventListener("click", () => { alertDraft.rules.splice(i, 1); changeDraft(); });
+    row.append(remove, el("div", { class: "says" }, describeRule(r)));
+    box.append(row);
+  });
+}
+
+function renderAlertEditor() {
+  document.getElementById("autoOn").checked = !!alertDraft.auto.enabled;
+  document.getElementById("autoLevel").value = AUTO_LEVELS.includes(alertDraft.auto.sensitivity) ? alertDraft.auto.sensitivity : "normal";
+  renderRules();
+  const errors = validateAlerts(alertDraft);
+  const list = document.getElementById("ruleErrors");
+  list.replaceChildren(...errors.map((e) => el("li", {}, e)));
+  const dirty = JSON.stringify(cleanConfig(alertDraft)) !== JSON.stringify(cleanConfig(JSON.parse(savedAlerts)));
+  const state = document.getElementById("saveState");
+  state.textContent = dirty ? "저장하지 않은 변경이 있습니다(이 브라우저에만 임시 저장됨)." : "저장된 설정과 같습니다.";
+  state.classList.toggle("dirty", dirty);
+  document.getElementById("saveGitHub").disabled = !!errors.length || !dirty;
+  document.getElementById("jsonPreview").textContent = configText();
+}
+
+function renderFired() {
+  const info = DATA.alerts || {};
+  const box = document.getElementById("fired");
+  document.getElementById("firedTitle").textContent = info.date ? `최근 알림 (${md(info.date)} 거래 기준)` : "최근 알림";
+  box.replaceChildren();
+  if (info.error) box.append(el("li", { class: "up" }, `${info.error}. 아래에서 규칙을 다시 저장하세요.`));
+  (info.fired || []).forEach((a) => box.append(el("li", { class: a.up ? "up" : "down" }, a.text)));
+  if (!info.error && !(info.fired || []).length) box.append(el("li", { class: "none" }, "저장된 규칙과 자동 감시에 걸린 알림이 없습니다."));
+}
+
+function utf8Base64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+
+async function saveToGitHub() {
+  const state = document.getElementById("saveState");
+  const token = document.getElementById("ghToken").value.trim();
+  if (!token) { state.textContent = "GitHub 토큰을 넣거나, '설정 복사' 후 직접 편집하세요."; return; }
+  save("nr.ghToken", token);
+  const api = `https://api.github.com/repos/${DATA.repo}/contents/alerts.json`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  state.textContent = "저장 중...";
+  try {
+    const current = await fetch(`${api}?ref=main`, { headers });
+    const sha = current.ok ? (await current.json()).sha : undefined;
+    const res = await fetch(api, { method: "PUT", headers, body: JSON.stringify({
+      message: "chore: update alert rules", content: utf8Base64(configText()), branch: "main", sha }) });
+    if (!res.ok) throw new Error(`${res.status} ${(await res.json().catch(() => ({}))).message || ""}`.trim());
+    savedAlerts = JSON.stringify(cleanConfig(alertDraft));
+    renderAlertEditor();
+    state.textContent = "저장했습니다. 다음 수집부터 이 규칙으로 알림을 보냅니다.";
+  } catch (e) {
+    state.textContent = `저장하지 못했습니다: ${e.message}. 토큰 권한(Contents 읽기·쓰기)을 확인하세요.`;
+    state.classList.add("dirty");
+  }
+}
+
+function renderAlerts() {
+  const list = el("datalist", { id: "ruleSpeciesList" });
+  list.append(el("option", { value: "*" }, "표본이 많은 어종 전체"));
+  DATA.species.forEach((s) => list.append(el("option", { value: s }, speciesLabel(s))));
+  document.getElementById("view-alert").append(list);
+  document.getElementById("ghToken").value = load("nr.ghToken", "");
+  document.getElementById("editLink").href = `https://github.com/${DATA.repo}/edit/main/alerts.json`;
+  document.getElementById("autoOn").addEventListener("change", (e) => { alertDraft.auto.enabled = e.target.checked; changeDraft(); });
+  document.getElementById("autoLevel").addEventListener("change", (e) => { alertDraft.auto.sensitivity = e.target.value; changeDraft(); });
+  document.getElementById("ruleAdd").addEventListener("click", () => { alertDraft.rules.push(newRule()); changeDraft(); });
+  document.getElementById("resetDraft").addEventListener("click", () => { alertDraft = JSON.parse(savedAlerts); changeDraft(); });
+  document.getElementById("saveGitHub").addEventListener("click", saveToGitHub);
+  document.getElementById("copyJson").addEventListener("click", () => {
+    const state = document.getElementById("saveState");
+    navigator.clipboard.writeText(configText()).then(() => { state.textContent = "설정을 복사했습니다. 'GitHub에서 직접 편집'에서 내용 전체를 바꿔 붙여 넣으세요."; },
+      () => { state.textContent = "복사하지 못했습니다. 아래 내용을 직접 선택해 복사하세요."; });
+  });
+  renderFired();
+  renderAlertEditor();
+}
+
 /* ------------------------------------------------------------------ 시작 */
 document.getElementById("notice").hidden = !DATA.sample;
 document.getElementById("footer").innerHTML =
@@ -1005,7 +1271,8 @@ document.getElementById("footer").innerHTML =
   (DATA.sample ? "샘플 데이터"
     : '<a href="https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130">노량진수산물도매시장 어종별 경락시세</a>');
 renderWeek();
-showView(load("nr.view", "week") === "price" ? "price" : "week");
+renderAlerts();
+showView(["price", "alert"].includes(load("nr.view", "week")) ? load("nr.view", "week") : "week");
 </script>
 </body>
 </html>

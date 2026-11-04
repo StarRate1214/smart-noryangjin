@@ -4,10 +4,11 @@
     python alerts.py            # 최근 거래일 알림을 판정해 출력만 한다
     python alerts.py --send     # NTFY_TOPIC 으로 새 알림을 보내고 data/alerts_sent.json 에 기록한다
 
-규칙 종류(alerts.json 의 rules):
-    change  최근 값이 기준(직전 거래일 또는 직전 N거래일 평균)보다 %·원(경락량은 kg) 이상 오르거나 내렸을 때
-    level   최근 값이 지정한 원(경락량은 kg) 이상이거나 이하일 때
-자동 감시(alerts.json 의 auto)는 표본이 많은 어종·상태에서 평소 움직임보다 크게 벗어난 가격·경락량을 잡는다.
+규칙(alerts.json 의 rules): 어종·상태와 조건 1~5개, 조건을 모두(match=all) 또는 하나라도(any) 만족하면 알린다.
+조건 종류:
+    change  최근 값이 기준(직전 거래일 또는 직전 N거래일 평균)보다 %·원(입하량은 kg)·배 이상 오르거나 내렸을 때
+    level   최근 값이 지정한 원(입하량은 kg) 이상이거나 이하일 때
+자동 감시(alerts.json 의 auto)는 표본이 많은 어종·상태에서 평소 움직임보다 크게 벗어난 가격·입하량을 잡는다.
 
 환경 변수:
     NTFY_TOPIC   알림을 보낼 ntfy 주제(저장소 Secrets). 없으면 보내지 않는다
@@ -32,7 +33,8 @@ ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "alerts.json"
 SENT_FILE = ROOT / "data" / "alerts_sent.json"
 
-METRICS = {"avg": "평균가", "high": "고가", "low": "저가", "volume": "경락량"}
+# 입하량은 그날 낙찰된 수량 x 중량의 합(kg)이다. 시장이 발표하는 입하량과는 조금 다를 수 있다
+METRICS = {"avg": "평균가", "high": "고가", "low": "저가", "volume": "입하량"}
 STATE_NAMES = {"활": "활", "선": "선", "": "전체"}
 # 규칙 판정에 쓰는 지난 거래 기간. 직전 20거래일 평균까지 고를 수 있어 넉넉히 둔다.
 LOOKBACK_DAYS = 45
@@ -71,35 +73,62 @@ def load_config(path=None):
     return config
 
 
+CONDITION_KEYS = ("metric", "type", "base_days", "direction", "unit", "value", "op")
+MAX_CONDITIONS = 5
+
+
+def normalize_rule(rule):
+    """규칙을 조건 목록 형식으로 맞춘다. 예전 형식(조건 필드가 규칙에 바로 있음)도 조건 하나짜리 규칙으로 읽는다."""
+    if "conditions" in rule:
+        return {**rule, "match": rule.get("match", "all")}
+    rest = {k: v for k, v in rule.items() if k not in CONDITION_KEYS}
+    return {**rest, "match": "all", "conditions": [{k: rule[k] for k in CONDITION_KEYS if k in rule}]}
+
+
+def validate_condition(cond, where):
+    errors = []
+    if cond.get("type") not in ("change", "level"):
+        return [f"{where}: type 은 change 또는 level 입니다"]
+    if cond.get("metric") not in METRICS:
+        errors.append(f"{where}: metric 은 {list(METRICS)} 중 하나입니다")
+    value = cond.get("value")
+    if not isinstance(value, (int, float)) or value < 0:
+        errors.append(f"{where}: value 는 0 이상의 숫자입니다")
+    if cond.get("type") == "change":
+        if cond.get("unit") not in ("pct", "abs", "ratio"):
+            errors.append(f"{where}: unit 은 pct, abs, ratio 중 하나입니다")
+        elif cond["unit"] == "ratio" and isinstance(value, (int, float)) and value <= 1:
+            errors.append(f"{where}: 배수(ratio)는 1보다 커야 합니다")
+        if cond.get("direction") not in ("up", "down", "both"):
+            errors.append(f"{where}: direction 은 up, down, both 중 하나입니다")
+        if not isinstance(cond.get("base_days"), int) or not 1 <= cond["base_days"] <= 20:
+            errors.append(f"{where}: base_days 는 1~20 의 정수입니다")
+    elif cond.get("op") not in ("above", "below"):
+        errors.append(f"{where}: op 는 above 또는 below 입니다")
+    return errors
+
+
 def validate(config):
     """설정의 형식 오류를 문장으로 돌려준다. 페이지의 편집기와 같은 규칙이다."""
     errors = []
     auto = config.get("auto", {})
     if auto.get("sensitivity", "normal") not in AUTO_LEVELS:
         errors.append(f"auto.sensitivity 는 {list(AUTO_LEVELS)} 중 하나여야 합니다")
-    for i, rule in enumerate(config.get("rules", []), 1):
+    for i, raw in enumerate(config.get("rules", []), 1):
+        rule = normalize_rule(raw)
         where = f"규칙 {i}"
-        if rule.get("type") not in ("change", "level"):
-            errors.append(f"{where}: type 은 change 또는 level 입니다")
-            continue
-        if rule.get("metric") not in METRICS:
-            errors.append(f"{where}: metric 은 {list(METRICS)} 중 하나입니다")
         if rule.get("state", "") not in STATE_NAMES:
             errors.append(f"{where}: state 는 활, 선, '' 중 하나입니다")
         if not rule.get("species"):
             errors.append(f"{where}: species 가 비었습니다('*' 는 표본이 많은 어종 전체)")
-        value = rule.get("value")
-        if not isinstance(value, (int, float)) or value < 0:
-            errors.append(f"{where}: value 는 0 이상의 숫자입니다")
-        if rule.get("type") == "change":
-            if rule.get("unit") not in ("pct", "abs"):
-                errors.append(f"{where}: unit 은 pct 또는 abs 입니다")
-            if rule.get("direction") not in ("up", "down", "both"):
-                errors.append(f"{where}: direction 은 up, down, both 중 하나입니다")
-            if not isinstance(rule.get("base_days"), int) or not 1 <= rule["base_days"] <= 20:
-                errors.append(f"{where}: base_days 는 1~20 의 정수입니다")
-        elif rule.get("op") not in ("above", "below"):
-            errors.append(f"{where}: op 는 above 또는 below 입니다")
+        if rule["match"] not in ("all", "any"):
+            errors.append(f"{where}: match 는 all(그리고) 또는 any(또는)입니다")
+        conditions = rule.get("conditions")
+        if not isinstance(conditions, list) or not 1 <= len(conditions) <= MAX_CONDITIONS:
+            errors.append(f"{where}: 조건은 1~{MAX_CONDITIONS}개입니다")
+            continue
+        for j, cond in enumerate(conditions, 1):
+            errors += validate_condition(cond, f"{where} 조건 {j}")
     return errors
 
 
@@ -154,39 +183,65 @@ def unit_of(metric):
     return "kg" if metric == "volume" else "원"
 
 
-def describe_rule(rule):
-    metric = METRICS[rule["metric"]]
-    unit = unit_of(rule["metric"])
-    if rule["type"] == "level":
-        return f"{metric} {rule['value']:,.0f}{unit} {'이상' if rule['op'] == 'above' else '이하'}"
-    base = "직전 거래일" if rule["base_days"] == 1 else f"직전 {rule['base_days']}거래일 평균"
-    amount = f"{rule['value']:g}%" if rule["unit"] == "pct" else f"{rule['value']:,.0f}{unit}"
-    way = {"up": "상승", "down": "하락", "both": "변동"}[rule["direction"]]
+def describe_condition(cond):
+    metric = METRICS[cond["metric"]]
+    unit = unit_of(cond["metric"])
+    if cond["type"] == "level":
+        return f"{metric} {cond['value']:,.0f}{unit} {'이상' if cond['op'] == 'above' else '이하'}"
+    base = "직전 거래일" if cond["base_days"] == 1 else f"직전 {cond['base_days']}거래일 평균"
+    if cond["unit"] == "ratio":
+        way = {"up": "이상", "down": "분의 1 이하", "both": "이상 또는 그 분의 1 이하"}[cond["direction"]]
+        return f"{metric} {base}의 {cond['value']:g}배 {way}"
+    amount = f"{cond['value']:g}%" if cond["unit"] == "pct" else f"{cond['value']:,.0f}{unit}"
+    way = {"up": "상승", "down": "하락", "both": "변동"}[cond["direction"]]
     return f"{metric} {base} 대비 {amount} 이상 {way}"
 
 
-def check_rule(rule, past, now):
-    """규칙에 걸리면 알림 세부 내용(dict), 아니면 None."""
-    metric = rule["metric"]
+def describe_rule(rule):
+    rule = normalize_rule(rule)
+    joiner = " 그리고 " if rule["match"] == "all" else " 또는 "
+    return joiner.join(describe_condition(c) for c in rule["conditions"])
+
+
+def check_condition(cond, past, now):
+    """조건에 걸리면 세부 내용(dict), 아니면 None."""
+    metric = cond["metric"]
     cur = now.get(metric) if now else None
     if cur is None:
         return None
-    if rule["type"] == "level":
-        hit = cur >= rule["value"] if rule["op"] == "above" else cur <= rule["value"]
-        return {"current": cur, "up": rule["op"] == "above"} if hit else None
-    values = [d[metric] for d in past[-rule["base_days"]:] if d.get(metric) is not None]
-    if len(values) < math.ceil(rule["base_days"] / 2):
+    if cond["type"] == "level":
+        hit = cur >= cond["value"] if cond["op"] == "above" else cur <= cond["value"]
+        return {"metric": metric, "current": cur, "up": cond["op"] == "above"} if hit else None
+    values = [d[metric] for d in past[-cond["base_days"]:] if d.get(metric) is not None]
+    if len(values) < math.ceil(cond["base_days"] / 2):
         return None
     base = sum(values) / len(values)
     if base <= 0:
         return None
     diff = cur - base
-    amount = diff / base * 100 if rule["unit"] == "pct" else diff
-    threshold = rule["value"]
-    hit = {"up": amount >= threshold, "down": amount <= -threshold, "both": abs(amount) >= threshold}[rule["direction"]]
+    threshold = cond["value"]
+    if cond["unit"] == "ratio":
+        # 2배 상승은 기준의 2배 이상, 2배 하락은 기준의 절반 이하
+        ratio = cur / base
+        up, down = ratio >= threshold, ratio <= 1 / threshold
+    else:
+        amount = diff / base * 100 if cond["unit"] == "pct" else diff
+        up, down = amount >= threshold, amount <= -threshold
+    hit = {"up": up, "down": down, "both": up or down}[cond["direction"]]
     if not hit or diff == 0:
         return None
-    return {"current": cur, "base": base, "pct": diff / base * 100, "up": diff > 0}
+    return {"metric": metric, "current": cur, "base": base, "pct": diff / base * 100, "up": diff > 0}
+
+
+def check_rule(rule, past, now):
+    """규칙에 걸리면 {'hits': 걸린 조건들, 'up': 첫 조건의 방향}, 아니면 None.
+    match 가 all 이면 모든 조건이, any 면 하나 이상이 걸려야 한다."""
+    rule = normalize_rule(rule)
+    results = [check_condition(c, past, now) for c in rule["conditions"]]
+    hits = [r for r in results if r]
+    if not hits or (rule["match"] == "all" and len(hits) < len(results)):
+        return None
+    return {"hits": hits, "up": hits[0]["up"]}
 
 
 def robust_z(values, current, floor):
@@ -235,10 +290,9 @@ def evaluate(config, values, latest):
         majors.add(key)
         if auto.get("enabled", True):
             for metric, cur, typical, pct in check_auto(past, now, auto.get("sensitivity", "normal")):
-                alerts.append({
-                    "id": f"auto:{metric}", "key": key, "metric": metric, "current": cur, "base": typical,
-                    "pct": pct, "up": pct >= 0, "rule": f"자동 감시: 평소({AUTO_WINDOW}거래일)보다 크게 벗어남",
-                })
+                hit = {"metric": metric, "current": cur, "base": typical, "pct": pct, "up": pct >= 0}
+                alerts.append({"id": f"auto:{metric}", "key": key, "metric": metric, "hits": [hit], "up": hit["up"],
+                               "rule": f"자동 감시: 평소({AUTO_WINDOW}거래일)보다 크게 벗어남"})
     for i, rule in enumerate(config.get("rules", [])):
         if not rule.get("enabled", True):
             continue
@@ -253,7 +307,7 @@ def evaluate(config, values, latest):
             past, now = history(values[key], latest)
             hit = check_rule(rule, past, now)
             if hit:
-                alerts.append({"id": rule.get("id") or f"rule{i + 1}", "key": key, "metric": rule["metric"],
+                alerts.append({"id": rule.get("id") or f"rule{i + 1}", "key": key, "metric": hit["hits"][0]["metric"],
                                "rule": describe_rule(rule), **hit})
     for a in alerts:
         a["date"] = latest
@@ -263,13 +317,14 @@ def evaluate(config, values, latest):
 
 
 def message_text(alert):
-    unit = unit_of(alert["metric"])
-    metric = METRICS[alert["metric"]]
-    head = f"{alert['label']} {metric} {alert['current']:,.0f}{unit}"
-    if "base" in alert:
-        pct = alert["pct"]
-        head += f" ({'+' if pct >= 0 else '−'}{abs(pct):.0f}%, 기준 {alert['base']:,.0f}{unit})"
-    return f"{head} · {alert['rule']}"
+    parts = []
+    for h in alert["hits"]:
+        unit = unit_of(h["metric"])
+        part = f"{METRICS[h['metric']]} {h['current']:,.0f}{unit}"
+        if "base" in h:
+            part += f" ({'+' if h['pct'] >= 0 else '−'}{abs(h['pct']):.0f}%, 기준 {h['base']:,.0f}{unit})"
+        parts.append(part)
+    return f"{alert['label']} {', '.join(parts)} · {alert['rule']}"
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +364,8 @@ def send(alerts, topic, click=None):
     fresh = [a for a in alerts if alert_key(a) not in sent.get(a["date"], [])]
     for a in fresh[:MAX_MESSAGES]:
         tags = ["chart_with_upwards_trend" if a["up"] else "chart_with_downwards_trend", "fish"]
-        publish(topic, f"노량진 {a['label']} {METRICS[a['metric']]}", a["text"] + f" ({a['date']})", tags, click)
+        what = METRICS[a["metric"]] if len(a["hits"]) == 1 else "알림"
+        publish(topic, f"노량진 {a['label']} {what}", a["text"] + f" ({a['date']})", tags, click)
     if len(fresh) > MAX_MESSAGES:
         rest = fresh[MAX_MESSAGES:]
         publish(topic, f"노량진 알림 {len(rest)}건 더", "\n".join(a["text"] for a in rest), ["fish"], click)

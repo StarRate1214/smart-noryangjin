@@ -160,7 +160,12 @@
     background: #fff; color: var(--text); max-width: 100%; }
   .rule input[type="text"] { width: 130px; }
   .rule input[type="number"] { width: 96px; }
-  .rule .says { flex-basis: 100%; color: var(--navy); font-size: .82rem; }
+  .rule { flex-direction: column; align-items: stretch; }
+  .rule-head, .cond { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .cond { padding: 6px 0 0 10px; border-left: 3px solid var(--mint); }
+  .cond .join { font-size: .78rem; font-weight: 700; color: var(--navy); background: var(--mint); border-radius: 6px; padding: 2px 6px; }
+  .rule .add-cond { align-self: flex-start; }
+  .rule .says { color: var(--navy); font-size: .82rem; }
   .rule .remove { margin-left: auto; }
   button.add, .step-btn { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
                           height: 32px; padding: 0 12px; font: inherit; font-size: .85rem; cursor: pointer;
@@ -300,7 +305,9 @@
     <div class="panel">
       <div class="chart-head"><h2>내 알림 규칙</h2><button type="button" class="add" id="ruleAdd">＋ 규칙 추가</button></div>
       <div id="rules"></div>
-      <p class="hint">어종에 <b>*</b>를 넣으면 표본이 많은 어종 전체에 같은 규칙을 씁니다. 가격은 kg 단위 거래 기준(평균가는 수량 가중)이고, 경락량 단위는 kg입니다. '직전 N거래일 평균'은 그 어종이 거래된 직전 N일의 평균입니다.</p>
+      <p class="hint">어종에 <b>*</b>를 넣으면 표본이 많은 어종 전체에 같은 규칙을 씁니다. 한 규칙에 조건을 5개까지 두고 '모두 만족(AND)' 또는 '하나라도 만족(OR)'으로 묶습니다.
+        예: 입하량이 직전 5거래일 평균의 2배 이상 <b>그리고</b> 평균가가 10% 이상 내림. 가격은 kg 단위 거래 기준(평균가는 수량 가중)입니다.
+        입하량은 그날 낙찰된 수량 × 중량의 합(kg)이라 시장 발표 입하량과 조금 다를 수 있습니다. '직전 N거래일 평균'은 그 어종이 거래된 직전 N일의 평균이고, 배수 하락은 기준의 그 분의 1 이하(2배 하락 = 절반 이하)입니다.</p>
     </div>
 
     <div class="panel">
@@ -1084,25 +1091,49 @@ function updatePrice() {
 /* ------------------------------------------------------------------ 알림 설정 */
 // 규칙은 저장소의 alerts.json 에 있고, 매일 수집 뒤 alerts.py 가 판정해 ntfy 로 보낸다.
 // 여기서는 규칙을 편집해 그 파일로 저장한다. 판정 규칙은 alerts.py 의 validate, describe_rule 과 같다.
-const METRIC_NAMES = { avg: "평균가", high: "고가", low: "저가", volume: "경락량" };
+const METRIC_NAMES = { avg: "평균가", high: "고가", low: "저가", volume: "입하량" };
 const AUTO_LEVELS = ["low", "normal", "high"];
-let savedAlerts = JSON.stringify((DATA.alerts || {}).config || { auto: { enabled: true, sensitivity: "normal" }, rules: [] });
-let alertDraft = load("nr.alertDraft", null) || JSON.parse(savedAlerts);
+const MAX_CONDITIONS = 5;
+const CONDITION_KEYS = ["metric", "type", "base_days", "direction", "unit", "value", "op"];
+// 예전 형식(조건 필드가 규칙에 바로 있음)도 조건 목록 형식으로 읽는다. alerts.py 의 normalize_rule 과 같다
+function normalizeRule(r) {
+  if (Array.isArray(r.conditions)) return { ...r, match: r.match || "all" };
+  const cond = {}, rest = {};
+  Object.entries(r).forEach(([k, v]) => { (CONDITION_KEYS.includes(k) ? cond : rest)[k] = v; });
+  return { ...rest, match: "all", conditions: [cond] };
+}
+const normalizeConfig = (c) => ({ auto: { enabled: true, sensitivity: "normal", ...(c.auto || {}) },
+                                   rules: (c.rules || []).map(normalizeRule) });
+let savedAlerts = JSON.stringify(normalizeConfig((DATA.alerts || {}).config || {}));
+let alertDraft = normalizeConfig(load("nr.alertDraft", null) || JSON.parse(savedAlerts));
 const unitOf = (metric) => (metric === "volume" ? "kg" : "원");
 
+const newCondition = () => ({ metric: "avg", type: "change", base_days: 1, direction: "both", unit: "pct", value: 20 });
 function newRule() {
   return { id: "r" + Date.now().toString(36), enabled: true, species: view.species || "*", state: "활",
-           metric: "avg", type: "change", base_days: 1, direction: "both", unit: "pct", value: 20 };
+           match: "all", conditions: [newCondition()] };
+}
+
+// 받침이 있으면 '이', 없으면 '가' (입하량이, 평균가가)
+const subject = (word) => word + ((word.charCodeAt(word.length - 1) - 0xac00) % 28 ? "이" : "가");
+
+function describeCondition(c) {
+  const metric = subject(METRIC_NAMES[c.metric] || c.metric), unit = unitOf(c.metric);
+  if (c.type === "level") return `${metric} ${fmt(c.value)}${unit} ${c.op === "above" ? "이상" : "이하"}`;
+  const base = c.base_days === 1 ? "직전 거래일" : `직전 ${c.base_days}거래일 평균`;
+  if (c.unit === "ratio") {
+    const way = { up: "이상", down: "분의 1 이하", both: "이상이거나 그 분의 1 이하" }[c.direction];
+    return `${metric} ${base}의 ${c.value}배 ${way}`;
+  }
+  const amount = c.unit === "pct" ? `${c.value}%` : `${fmt(c.value)}${unit}`;
+  const way = { up: "오름", down: "내림", both: "오르거나 내림" }[c.direction];
+  return `${metric} ${base}보다 ${amount} 이상 ${way}`;
 }
 
 function describeRule(r) {
-  const metric = METRIC_NAMES[r.metric] || r.metric, unit = unitOf(r.metric);
   const target = `${r.species === "*" ? "표본이 많은 어종 전체" : speciesLabel(r.species)}(${r.state ? r.state : "전체"})`;
-  if (r.type === "level") return `${target}의 ${metric}가 ${fmt(r.value)}${unit} ${r.op === "above" ? "이상" : "이하"}이면 알림`;
-  const base = r.base_days === 1 ? "직전 거래일" : `직전 ${r.base_days}거래일 평균`;
-  const amount = r.unit === "pct" ? `${r.value}%` : `${fmt(r.value)}${unit}`;
-  const way = { up: "오르면", down: "내리면", both: "오르거나 내리면" }[r.direction];
-  return `${target}의 ${metric}가 ${base}보다 ${amount} 이상 ${way} 알림`;
+  const joiner = r.match === "all" ? " 그리고 " : " 또는 ";
+  return `${target}: ${r.conditions.map(describeCondition).join(joiner)} → 알림`;
 }
 
 function validateAlerts(config) {
@@ -1111,20 +1142,26 @@ function validateAlerts(config) {
     const where = `규칙 ${i + 1}`;
     if (!r.species) errors.push(`${where}: 어종을 고르세요(* 는 표본이 많은 어종 전체)`);
     else if (r.species !== "*" && !DATA.species.includes(r.species)) errors.push(`${where}: '${r.species}'은(는) 최근 거래된 어종이 아닙니다`);
-    if (!(typeof r.value === "number" && Number.isFinite(r.value) && r.value >= 0)) errors.push(`${where}: 값은 0 이상의 숫자여야 합니다`);
+    if (!r.conditions.length) errors.push(`${where}: 조건이 하나 이상 있어야 합니다`);
+    r.conditions.forEach((c, j) => {
+      const at = r.conditions.length > 1 ? `${where} 조건 ${j + 1}` : where;
+      if (!(typeof c.value === "number" && Number.isFinite(c.value) && c.value >= 0)) errors.push(`${at}: 값은 0 이상의 숫자여야 합니다`);
+      else if (c.type === "change" && c.unit === "ratio" && c.value <= 1) errors.push(`${at}: 배수는 1보다 커야 합니다(예: 2배)`);
+    });
   });
   return errors;
 }
 
 function cleanConfig(config) {
-  // 저장 형식: 규칙 종류에 맞는 필드만 남긴다
+  // 저장 형식: 조건 종류에 맞는 필드만 남긴다
   return {
     auto: { enabled: !!config.auto.enabled, sensitivity: config.auto.sensitivity },
-    rules: config.rules.map((r) => {
-      const base = { id: r.id, enabled: !!r.enabled, species: r.species, state: r.state, metric: r.metric, type: r.type };
-      return r.type === "level" ? { ...base, op: r.op || "above", value: r.value }
-        : { ...base, base_days: r.base_days, direction: r.direction, unit: r.unit, value: r.value };
-    }),
+    rules: config.rules.map((r) => ({
+      id: r.id, enabled: !!r.enabled, species: r.species, state: r.state, match: r.match,
+      conditions: r.conditions.map((c) => (c.type === "level"
+        ? { metric: c.metric, type: "level", op: c.op || "above", value: c.value }
+        : { metric: c.metric, type: "change", base_days: c.base_days, direction: c.direction, unit: c.unit, value: c.value })),
+    })),
   };
 }
 
@@ -1139,16 +1176,60 @@ function select(options, value, onChange, label) {
 
 function changeDraft() { save("nr.alertDraft", alertDraft); renderAlertEditor(); }
 
+function conditionRow(r, c, j) {
+  const row = el("div", { class: "cond", "data-cond": String(j) });
+  const set = (key, cast = (v) => v) => (v) => { c[key] = cast(v); changeDraft(); };
+  if (j > 0) row.append(el("span", { class: "join" }, r.match === "all" ? "그리고" : "또는"));
+  const value = el("input", { type: "number", min: "0", step: "any", value: String(c.value), "aria-label": "값" });
+  value.addEventListener("change", () => { c.value = value.value === "" ? NaN : Number(value.value); changeDraft(); });
+  row.append(
+    select(Object.entries(METRIC_NAMES), c.metric, (v) => {
+      c.metric = v;
+      if (c.type === "level") c.value = v === "volume" ? 1000 : 30000;
+      changeDraft();
+    }, "항목"),
+    select([["change", "변화"], ["level", "수준"]], c.type, (v) => {
+      c.type = v;
+      if (v === "level") Object.assign(c, { op: c.op || "above", value: c.metric === "volume" ? 1000 : 30000 });
+      else Object.assign(c, { base_days: c.base_days || 1, direction: c.direction || "both", unit: "pct", value: 20 });
+      changeDraft();
+    }, "조건 종류"),
+  );
+  if (c.type === "level") {
+    row.append(value, el("span", {}, unitOf(c.metric)), select([["above", "이상"], ["below", "이하"]], c.op, set("op"), "이상 또는 이하"));
+  } else {
+    row.append(
+      select([[1, "직전 거래일"], [5, "직전 5거래일 평균"], [10, "직전 10거래일 평균"], [20, "직전 20거래일 평균"]], c.base_days, set("base_days", Number), "기준"),
+      select([["up", "상승"], ["down", "하락"], ["both", "상승·하락"]], c.direction, set("direction"), "방향"),
+      value,
+      select([["pct", "%"], ["abs", unitOf(c.metric)], ["ratio", "배"]], c.unit, (v) => {
+        // 단위를 바꾸면 그 단위에 맞는 흔한 값으로 바꿔 둔다(20% → 20배 같은 실수 방지)
+        c.unit = v;
+        c.value = v === "ratio" ? 2 : v === "pct" ? 20 : c.metric === "volume" ? 500 : 5000;
+        changeDraft();
+      }, "단위"),
+    );
+  }
+  if (r.conditions.length > 1) {
+    const remove = el("button", { type: "button", class: "step-btn", "aria-label": "조건 삭제" }, "조건 삭제");
+    remove.addEventListener("click", () => { r.conditions.splice(j, 1); changeDraft(); });
+    row.append(remove);
+  }
+  return row;
+}
+
 function renderRules() {
   const box = document.getElementById("rules");
   box.replaceChildren();
   if (!alertDraft.rules.length) box.append(el("p", { class: "hint" }, "아직 규칙이 없습니다. '＋ 규칙 추가'로 만드세요."));
   alertDraft.rules.forEach((r, i) => {
     const row = el("div", { class: "rule" + (r.enabled ? "" : " off"), "data-rule": String(i) });
-    const set = (key, cast = (v) => v) => (v) => { r[key] = cast(v); changeDraft(); };
+    const head = el("div", { class: "rule-head" });
+    const toggle = el("label", { class: "toggle" });
     const on = el("input", { type: "checkbox", "aria-label": "규칙 사용" });
     on.checked = r.enabled;
     on.addEventListener("change", () => { r.enabled = on.checked; changeDraft(); });
+    toggle.append(on, "사용");
     const species = el("input", { type: "text", list: "ruleSpeciesList", value: r.species, "aria-label": "어종", placeholder: "어종 또는 *" });
     species.addEventListener("change", () => {
       const q = species.value.trim();
@@ -1156,34 +1237,20 @@ function renderRules() {
       const hit = q === "*" ? "*" : DATA.species.find((s) => s === q || speciesLabel(s) === q || LABELS[s] === q);
       r.species = hit || q; changeDraft();
     });
-    row.append(el("label", { class: "toggle" }), species);
-    row.firstChild.append(on, "사용");
-    row.append(
-      select([["활", "활어"], ["선", "선어"], ["", "전체"]], r.state, set("state"), "상태"),
-      select(Object.entries(METRIC_NAMES), r.metric, set("metric"), "항목"),
-      select([["change", "변화"], ["level", "수준"]], r.type, (v) => {
-        r.type = v;
-        if (v === "level") { r.op = r.op || "above"; r.value = r.metric === "volume" ? 1000 : 30000; }
-        else { Object.assign(r, { base_days: r.base_days || 1, direction: r.direction || "both", unit: "pct", value: 20 }); }
-        changeDraft();
-      }, "조건 종류"),
-    );
-    const value = el("input", { type: "number", min: "0", step: "any", value: String(r.value), "aria-label": "값" });
-    value.addEventListener("change", () => { r.value = value.value === "" ? NaN : Number(value.value); changeDraft(); });
-    if (r.type === "level") {
-      row.append(value, el("span", {}, unitOf(r.metric)),
-        select([["above", "이상"], ["below", "이하"]], r.op, set("op"), "이상 또는 이하"));
-    } else {
-      row.append(
-        select([[1, "직전 거래일"], [5, "직전 5거래일 평균"], [10, "직전 10거래일 평균"], [20, "직전 20거래일 평균"]], r.base_days, set("base_days", Number), "기준"),
-        select([["up", "상승"], ["down", "하락"], ["both", "상승·하락"]], r.direction, set("direction"), "방향"),
-        value,
-        select([["pct", "%"], ["abs", unitOf(r.metric)]], r.unit, set("unit"), "단위"),
-      );
-    }
-    const remove = el("button", { type: "button", class: "step-btn remove", "aria-label": "규칙 삭제" }, "삭제");
+    const remove = el("button", { type: "button", class: "step-btn remove", "aria-label": "규칙 삭제" }, "규칙 삭제");
     remove.addEventListener("click", () => { alertDraft.rules.splice(i, 1); changeDraft(); });
-    row.append(remove, el("div", { class: "says" }, describeRule(r)));
+    head.append(toggle, species,
+      select([["활", "활어"], ["선", "선어"], ["", "전체"]], r.state, (v) => { r.state = v; changeDraft(); }, "상태"),
+      select([["all", "조건 모두 만족 (AND)"], ["any", "조건 하나라도 만족 (OR)"]], r.match, (v) => { r.match = v; changeDraft(); }, "조건 결합"),
+      remove);
+    row.append(head);
+    r.conditions.forEach((c, j) => row.append(conditionRow(r, c, j)));
+    if (r.conditions.length < MAX_CONDITIONS) {
+      const add = el("button", { type: "button", class: "step-btn add-cond" }, "＋ 조건 추가");
+      add.addEventListener("click", () => { r.conditions.push(newCondition()); changeDraft(); });
+      row.append(add);
+    }
+    row.append(el("div", { class: "says" }, describeRule(r)));
     box.append(row);
   });
 }

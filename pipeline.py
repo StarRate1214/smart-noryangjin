@@ -55,6 +55,8 @@ KIND_RULES = {
     "농어": ("자연산", {"양식": ["중국"]}),
     "감성돔": ("국산", {"수입": FOREIGN}),
     "줄돔": ("국산", {"수입": FOREIGN}),
+    # 활어 입하량 표가 방어를 국산·수입으로 나눠 적어 같은 기준으로 나눈다
+    "방어": ("국산", {"수입": FOREIGN}),
 }
 
 # 주간 경락량 표의 행: (화면 이름, 공식 표기, 구분). 이 순서가 어종 목록의 앞쪽 순서도 된다.
@@ -357,8 +359,9 @@ def alert_info(source):
     except SystemExit as exc:
         config, fired, error = json.loads(json.dumps(alerts.DEFAULT_CONFIG)), [], str(exc)
     keep = ("date", "label", "metric", "text", "up", "id")
+    watch = [[alerts.watch_id(s, k), s, k] for s, k in alerts.WATCH_LIST]
     return {"config": config, "fired": [{k: a[k] for k in keep} for a in fired], "error": error,
-            "date": fired[0]["date"] if fired else alerts.latest_date()}
+            "date": fired[0]["date"] if fired else alerts.latest_date(), "watch": watch}
 
 
 def render_page(rows, source, reference=None, alert_info=None):
@@ -375,8 +378,8 @@ def render_page(rows, source, reference=None, alert_info=None):
         "ref": reference or {"dates": [], "series": {}},
         "refMonths": REF_MONTHS,
         # 알림 설정 탭: 저장된 규칙, 최근 거래일에 걸린 알림, 규칙을 저장할 저장소
-        "alerts": alert_info or {"config": {"auto": {"enabled": True, "sensitivity": "normal"}, "rules": []},
-                                 "fired": [], "date": None},
+        "alerts": alert_info or {"config": {"auto": {"enabled": True}, "rules": []},
+                                 "fired": [], "date": None, "watch": []},
         "repo": os.environ.get("GITHUB_REPOSITORY") or "StarRate1214/smart-noryangjin",
         "updated": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
     }

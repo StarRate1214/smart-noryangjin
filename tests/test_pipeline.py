@@ -82,7 +82,9 @@ def test_species_order_puts_table_species_first_then_volume():
         ("농어", "서천", "자연산"),
         ("줄돔", "일본", "수입"),
         ("감성돔", "여수", "국산"),
-        ("방어", "일본", ""),
+        ("방어", "일본", "수입"),  # 활어 입하량 표처럼 국산·수입으로 나눈다
+        ("방어", "포항", "국산"),
+        ("우럭", "통영", ""),
     ],
 )
 def test_kind_of(species, origin, kind):

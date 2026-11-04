@@ -190,6 +190,29 @@
   .cond { padding: 6px 0 0 10px; border-left: 3px solid var(--mint); }
   .cond .join { font-size: .78rem; font-weight: 700; color: var(--navy); background: var(--mint); border-radius: 6px; padding: 2px 6px; }
   .rule .add-cond { align-self: flex-start; }
+  .auto-settings { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 10px; border: 1px solid var(--line);
+                   border-radius: 10px; background: #fff; font-size: .88rem; }
+  .auto-settings.off { opacity: .55; }
+  .auto-settings input[type="number"] { width: 76px; height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font: inherit; }
+  .auto-settings select { height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; font: inherit; font-size: .88rem; max-width: 100%; }
+  .auto-settings .says { color: var(--navy); font-size: .82rem; }
+  .auto-label { font-weight: 700; color: var(--navy); min-width: 56px; }
+  .watch { border-top: 1px dashed var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .watch-head, .watch-extra { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .watch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px 10px; }
+  /* 토글 스위치 */
+  .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: .86rem; min-height: 30px; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 10px; background: #ced4da; transition: background .15s; }
+  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+                          background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+  .switch input:checked + .track { background: var(--navy); }
+  .switch input:checked + .track::after { transform: translateX(16px); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--sky); outline-offset: 2px; }
+  .switch input:not(:checked) ~ .name { color: var(--muted); text-decoration: line-through; }
+  .chip.extra { gap: 4px; }
+  .chip.extra .remove { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: 0 2px; }
+  .watch-extra input { height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font: inherit; font-size: .88rem; width: 160px; }
   .rule .says { color: var(--navy); font-size: .82rem; }
   .rule .remove { margin-left: auto; }
   button.add, .step-btn { border: 1px solid var(--sky); background: #fff; color: var(--navy); border-radius: 8px;
@@ -314,17 +337,9 @@
 
     <div class="panel">
       <h2>자동 감시 <button type="button" class="help" data-help="auto" aria-label="자동 감시 자세히">?</button></h2>
-      <div class="alert-auto">
-        <label class="toggle"><input type="checkbox" id="autoOn"> 표본이 많은 어종 자동 감시</label>
-        <label class="tool"><span>민감도</span>
-          <select id="autoLevel">
-            <option value="low">낮음 (큰 변화만)</option>
-            <option value="normal">보통</option>
-            <option value="high">높음 (작은 변화도)</option>
-          </select>
-        </label>
-      </div>
-      <p class="hint">직전 10거래일 하루 거래 건수가 5건 이상인 어종·상태에서, 평균가나 경락량이 평소 움직이는 폭보다 크게 벗어나면 알립니다. 보통 민감도는 하루 1~2건 정도입니다.</p>
+      <div id="autoBox"></div>
+      <p class="hint">시장이 매일 내는 '활어 입하량' 표의 품목을 기본으로 감시합니다(스위치로 끄고, 표에 없는 어종은 더할 수 있습니다). 기본값은 '활어 입하량이 평소의 1.5배 이상·300kg 이상 늘고 그리고 평균가가 10% 이상 내린 날'입니다. 물량이 몰려 경매가가 떨어지는, 사기 좋은 날을 잡습니다. 최근 1년 자료로는 하루 0.9건(일주일 5건 정도)입니다.
+        '강도'는 평소 출렁임의 몇 배 이상 벗어나야 하는지로, 늘 크게 출렁이는 어종이 매일 걸리지 않게 합니다(0이면 보지 않음).</p>
     </div>
 
     <div class="panel">
@@ -1123,7 +1138,27 @@ function updatePrice() {
 // 규칙은 저장소의 alerts.json 에 있고, 매일 수집 뒤 alerts.py 가 판정해 ntfy 로 보낸다.
 // 여기서는 규칙을 편집해 그 파일로 저장한다. 판정 규칙은 alerts.py 의 validate, describe_rule 과 같다.
 const METRIC_NAMES = { avg: "평균가", high: "고가", low: "저가", volume: "입하량" };
-const AUTO_LEVELS = ["low", "normal", "high"];
+// 자동 감시 기본값과 빠른 설정. alerts.py 의 AUTO_DEFAULT 와 같다
+const AUTO_DEFAULT = { enabled: true, mode: "both", window: 10, off: [], extra: [],
+                       volume: { ratio: 1.5, min_kg: 300, strength: 1 }, price: { direction: "down", pct: 10, strength: 1 } };
+const AUTO_PRESETS = {
+  many: ["알림 많이", { volume: { ratio: 1.3, min_kg: 200, strength: 0 }, price: { pct: 8, strength: 0 } }],
+  normal: ["보통 (기본)", { volume: { ratio: 1.5, min_kg: 300, strength: 1 }, price: { pct: 10, strength: 1 } }],
+  few: ["알림 적게", { volume: { ratio: 2, min_kg: 500, strength: 2 }, price: { pct: 15, strength: 2 } }],
+};
+const AUTO_MODES = [["both", "입하량 급증 그리고 가격 변화 (추천)"], ["any", "입하량 급증 또는 가격 변화"],
+                    ["volume", "입하량 급증만"], ["price", "가격 변화만"]];
+function normalizeAuto(a) {
+  // 예전 형식({enabled, sensitivity})은 켜짐 여부만 살린다. alerts.py 의 normalize_auto 와 같다
+  a = a || {};
+  const out = { ...AUTO_DEFAULT };
+  ["enabled", "mode", "window"].forEach((k) => { if (k in a) out[k] = a[k]; });
+  out.off = Array.isArray(a.off) ? [...a.off] : [];
+  out.extra = Array.isArray(a.extra) ? [...a.extra] : [];
+  out.volume = { ...AUTO_DEFAULT.volume, ...(a.volume || {}) };
+  out.price = { ...AUTO_DEFAULT.price, ...(a.price || {}) };
+  return out;
+}
 const MAX_CONDITIONS = 5;
 const CONDITION_KEYS = ["metric", "type", "base_days", "direction", "unit", "value", "op"];
 // 예전 형식(조건 필드가 규칙에 바로 있음)도 조건 목록 형식으로 읽는다. alerts.py 의 normalize_rule 과 같다
@@ -1133,13 +1168,13 @@ function normalizeRule(r) {
   Object.entries(r).forEach(([k, v]) => { (CONDITION_KEYS.includes(k) ? cond : rest)[k] = v; });
   return { ...rest, match: "all", conditions: [cond] };
 }
-const normalizeConfig = (c) => ({ auto: { enabled: true, sensitivity: "normal", ...(c.auto || {}) },
-                                   rules: (c.rules || []).map(normalizeRule) });
+const normalizeConfig = (c) => ({ auto: normalizeAuto(c.auto), rules: (c.rules || []).map(normalizeRule) });
 let savedAlerts = JSON.stringify(normalizeConfig((DATA.alerts || {}).config || {}));
 let alertDraft = normalizeConfig(load("nr.alertDraft", null) || JSON.parse(savedAlerts));
 const unitOf = (metric) => (metric === "volume" ? "kg" : "원");
 
-const newCondition = () => ({ metric: "avg", type: "change", base_days: 1, direction: "both", unit: "pct", value: 20 });
+// 이 알림의 목적은 값이 떨어지는 날을 잡는 것이라 새 조건은 '평균가 하락'으로 시작한다
+const newCondition = () => ({ metric: "avg", type: "change", base_days: 5, direction: "down", unit: "pct", value: 10 });
 function newRule() {
   return { id: "r" + Date.now().toString(36), enabled: true, species: view.species || "*", state: "활",
            match: "all", conditions: [newCondition()] };
@@ -1186,7 +1221,9 @@ function validateAlerts(config) {
 function cleanConfig(config) {
   // 저장 형식: 조건 종류에 맞는 필드만 남긴다
   return {
-    auto: { enabled: !!config.auto.enabled, sensitivity: config.auto.sensitivity },
+    auto: { enabled: !!config.auto.enabled, mode: config.auto.mode, window: config.auto.window,
+            off: [...config.auto.off], extra: [...config.auto.extra],
+            volume: { ...config.auto.volume }, price: { ...config.auto.price } },
     rules: config.rules.map((r) => ({
       id: r.id, enabled: !!r.enabled, species: r.species, state: r.state, match: r.match,
       conditions: r.conditions.map((c) => (c.type === "level"
@@ -1286,11 +1323,136 @@ function renderRules() {
   });
 }
 
+function describeAuto(a) {
+  const way = { down: "내림", up: "오름", both: "오르거나 내림" }[a.price.direction];
+  const vol = `입하량이 평소의 ${a.volume.ratio}배 이상·${fmt(a.volume.min_kg)}kg 이상 늘고`;
+  const price = `평균가가 ${a.price.pct}% 이상 ${way}`;
+  const text = { both: `${vol} 그리고 ${price}`, any: `${vol.replace("늘고", "늘거나")} 또는 ${price}`,
+                 volume: vol.replace("늘고", "늘면"), price }[a.mode];
+  const count = WATCH.filter(([id]) => !a.off.includes(id)).length + a.extra.length;
+  return `감시 어종 ${count}개의 활어에서, ${text} (직전 ${a.window}거래일 대비) → 알림`;
+}
+
+function numberInput(value, onChange, label, step = "any", min = "0") {
+  const input = el("input", { type: "number", min, step, value: String(value), "aria-label": label });
+  input.addEventListener("change", () => onChange(input.value === "" ? NaN : Number(input.value)));
+  return input;
+}
+
+function validateAuto(a) {
+  const errors = [];
+  const ok = (v, lo, hi) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+  if (!ok(a.volume.ratio, 1, 20)) errors.push("자동 감시: 입하량 배수는 1~20 사이로 넣으세요");
+  if (!ok(a.volume.min_kg, 0, 100000)) errors.push("자동 감시: 입하량 증가 kg 는 0 이상으로 넣으세요");
+  if (!ok(a.price.pct, 0, 100)) errors.push("자동 감시: 가격 변동률은 0~100% 로 넣으세요");
+  if (!ok(a.volume.strength, 0, 10) || !ok(a.price.strength, 0, 10)) errors.push("자동 감시: 강도는 0~10 으로 넣으세요");
+  a.extra.forEach((s) => { if (!DATA.species.includes(s)) errors.push(`자동 감시: '${s}'은(는) 최근 거래된 어종이 아닙니다`); });
+  return errors;
+}
+
+// 자동 감시 기본 목록: 시장의 '활어 입하량' 표 품목. [감시 이름, 공식 표기, 구분]
+const WATCH = (DATA.alerts || {}).watch || [];
+const watchLabel = (species, kind) => speciesLabel(species) + (kind ? ` ${kind}` : "");
+
+function watchList(a) {
+  const wrap = el("div", { class: "watch" });
+  const on = WATCH.filter(([id]) => !a.off.includes(id)).length;
+  const head = el("div", { class: "watch-head" });
+  head.append(el("span", { class: "auto-label" }, `감시 어종 (활어 입하량 표 ${on}/${WATCH.length})`));
+  [["모두 켜기", () => { a.off = []; }], ["모두 끄기", () => { a.off = WATCH.map(([id]) => id); }]].forEach(([label, act]) => {
+    const b = el("button", { type: "button", class: "step-btn" }, label);
+    b.addEventListener("click", () => { act(); changeDraft(); });
+    head.append(b);
+  });
+  wrap.append(head);
+  const grid = el("div", { class: "watch-grid" });
+  WATCH.forEach(([id, species, kind]) => {
+    const item = el("label", { class: "switch" });
+    const input = el("input", { type: "checkbox", role: "switch", "data-watch": id });
+    input.checked = !a.off.includes(id);
+    input.addEventListener("change", () => {
+      a.off = input.checked ? a.off.filter((x) => x !== id) : [...a.off, id];
+      changeDraft();
+    });
+    item.append(input, el("span", { class: "track" }), el("span", { class: "name" }, watchLabel(species, kind)));
+    grid.append(item);
+  });
+  wrap.append(grid);
+  // 표에 없는 어종 더하기
+  const extra = el("div", { class: "watch-extra" });
+  extra.append(el("span", { class: "auto-label" }, "더 감시할 어종"));
+  a.extra.forEach((s) => {
+    const chipEl = el("span", { class: "chip extra" }, speciesLabel(s));
+    const x = el("button", { type: "button", class: "remove", "aria-label": `${s} 빼기` }, "×");
+    x.addEventListener("click", () => { a.extra = a.extra.filter((v) => v !== s); changeDraft(); });
+    chipEl.append(x);
+    extra.append(chipEl);
+  });
+  const input = el("input", { type: "text", list: "ruleSpeciesList", placeholder: "어종 추가 (예: 왕게)", "aria-label": "감시 어종 추가" });
+  const add = el("button", { type: "button", class: "step-btn" }, "추가");
+  const addIt = () => {
+    const q = input.value.trim();
+    const hit = DATA.species.find((s) => s === q || speciesLabel(s) === q || LABELS[s] === q);
+    if (!hit) { input.setCustomValidity("최근 거래된 어종에서 고르세요"); input.reportValidity(); return; }
+    if (!a.extra.includes(hit) && !WATCH.some(([id]) => id === hit)) a.extra.push(hit);
+    changeDraft();
+  };
+  add.addEventListener("click", addIt);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addIt(); } });
+  input.addEventListener("input", () => input.setCustomValidity(""));
+  extra.append(input, add);
+  wrap.append(extra);
+  return wrap;
+}
+
+function renderAuto() {
+  const a = alertDraft.auto;
+  const box = document.getElementById("autoBox");
+  box.replaceChildren();
+  const head = el("div", { class: "alert-auto" });
+  const toggle = el("label", { class: "toggle" });
+  const on = el("input", { type: "checkbox", id: "autoOn" });
+  on.checked = !!a.enabled;
+  on.addEventListener("change", () => { a.enabled = on.checked; changeDraft(); });
+  toggle.append(on, "자동 감시 켜기");
+  head.append(toggle, el("span", { class: "auto-label" }, "빠른 설정"));
+  Object.entries(AUTO_PRESETS).forEach(([key, [label, values]]) => {
+    const b = el("button", { type: "button", class: "step-btn preset", "data-preset": key }, label);
+    b.addEventListener("click", () => {
+      Object.assign(a.volume, values.volume); Object.assign(a.price, values.price); changeDraft();
+    });
+    head.append(b);
+  });
+  box.append(head);
+
+  const settings = el("div", { class: "auto-settings" + (a.enabled ? "" : " off") });
+  const line = (label, ...items) => {
+    const row = el("div", { class: "cond" });
+    row.append(el("span", { class: "auto-label" }, label), ...items);
+    settings.append(row);
+  };
+  line("감지 방식", select(AUTO_MODES, a.mode, (v) => { a.mode = v; changeDraft(); }, "감지 방식"));
+  if (a.mode !== "price") {
+    line("입하량", "평소의", numberInput(a.volume.ratio, (v) => { a.volume.ratio = v; changeDraft(); }, "입하량 배수", "0.1", "1"), "배 이상,",
+      numberInput(a.volume.min_kg, (v) => { a.volume.min_kg = v; changeDraft(); }, "입하량 증가 kg", "50"), "kg 이상 증가 · 강도",
+      numberInput(a.volume.strength, (v) => { a.volume.strength = v; changeDraft(); }, "입하량 강도", "0.5"));
+  }
+  if (a.mode !== "volume") {
+    line("평균가", select([["down", "하락"], ["up", "상승"], ["both", "상승·하락"]], a.price.direction, (v) => { a.price.direction = v; changeDraft(); }, "가격 방향"),
+      numberInput(a.price.pct, (v) => { a.price.pct = v; changeDraft(); }, "가격 변동률", "1"), "% 이상 · 강도",
+      numberInput(a.price.strength, (v) => { a.price.strength = v; changeDraft(); }, "가격 강도", "0.5"));
+  }
+  line("평소 기준", select([[5, "직전 5거래일"], [7, "직전 7거래일"], [10, "직전 10거래일"], [15, "직전 15거래일"], [20, "직전 20거래일"]],
+    a.window, (v) => { a.window = Number(v); changeDraft(); }, "평소 기준"));
+  settings.append(watchList(a));
+  settings.append(el("div", { class: "says", id: "autoSays" }, describeAuto(a)));
+  box.append(settings);
+}
+
 function renderAlertEditor() {
-  document.getElementById("autoOn").checked = !!alertDraft.auto.enabled;
-  document.getElementById("autoLevel").value = AUTO_LEVELS.includes(alertDraft.auto.sensitivity) ? alertDraft.auto.sensitivity : "normal";
+  renderAuto();
   renderRules();
-  const errors = validateAlerts(alertDraft);
+  const errors = [...validateAuto(alertDraft.auto), ...validateAlerts(alertDraft)];
   const list = document.getElementById("ruleErrors");
   list.replaceChildren(...errors.map((e) => el("li", {}, e)));
   const dirty = JSON.stringify(cleanConfig(alertDraft)) !== JSON.stringify(cleanConfig(JSON.parse(savedAlerts)));
@@ -1348,8 +1510,6 @@ function renderAlerts() {
   document.getElementById("view-alert").append(list);
   document.getElementById("ghToken").value = load("nr.ghToken", "");
   document.getElementById("editLink").href = `https://github.com/${DATA.repo}/edit/main/alerts.json`;
-  document.getElementById("autoOn").addEventListener("change", (e) => { alertDraft.auto.enabled = e.target.checked; changeDraft(); });
-  document.getElementById("autoLevel").addEventListener("change", (e) => { alertDraft.auto.sensitivity = e.target.value; changeDraft(); });
   document.getElementById("ruleAdd").addEventListener("click", () => { alertDraft.rules.push(newRule()); changeDraft(); });
   document.getElementById("resetDraft").addEventListener("click", () => { alertDraft = JSON.parse(savedAlerts); changeDraft(); });
   document.getElementById("saveGitHub").addEventListener("click", saveToGitHub);
@@ -1390,14 +1550,21 @@ const HELP = {
     </ol>
     <div class="tip">이제 매일 수집(06:45 KST, 실제 시작은 조금 늦을 수 있음) 뒤 새 알림이 옵니다. 같은 날 같은 알림은 한 번만 갑니다. 알림을 누르면 이 대시보드가 열립니다.</div>`],
   auto: ["자동 감시는 어떻게 판단하나요", `
-    <p>규칙을 따로 만들지 않아도, <b>거래가 많은 어종</b>의 평균가·입하량이 평소보다 크게 튀면 알려 줍니다.</p>
+    <p>목적은 <b>물량이 몰려 경매가가 떨어지는 날</b>, 즉 사기 좋은 날을 알려 주는 것입니다. 값이 오르는 날은 기본으로 알리지 않습니다.</p>
     <ul>
-      <li><b>대상</b>: 직전 10거래일 하루 거래 건수가 5건 이상인 어종·상태(활어·선어를 나눠 봅니다).</li>
-      <li><b>평소 움직임</b>: 직전 10거래일 값이 보통 얼마나 오르내리는지 봅니다. 늘 출렁이는 어종은 웬만한 변화로는 울리지 않고, 늘 안정적인 어종은 작은 변화에도 울립니다.</li>
-      <li><b>가격</b>: 평소 폭보다 크게 벗어나고 변동률도 20% 이상(보통)일 때.</li>
-      <li><b>입하량</b>: 평소 폭보다 크게 늘고, 평소의 2배 이상이면서 500kg 이상 많을 때.</li>
+      <li><b>대상</b>: 시장이 매일 내는 <b>활어 입하량</b> 표의 품목(넙치 자연산·양식, 방어 국산·수입 등 29개)의 활어입니다. 양식·자연산, 국산·수입은 산지로 나눕니다(예: 양식 넙치 = 제주도, 수입 방어 = 일본 등 해외). 스위치로 끄거나, 표에 없는 어종을 '더 감시할 어종'에 넣을 수 있습니다.</li>
+      <li><b>평소 값</b>: 직전 N거래일 값의 가운데 값(중앙값)입니다. 하루 튄 날에 휘둘리지 않습니다.</li>
+      <li><b>입하량 급증</b>: 오늘 입하량이 평소의 정한 배수 이상이고, 늘어난 양이 정한 kg 이상일 때.</li>
+      <li><b>가격 변화</b>: 오늘 평균가(kg 거래, 수량 가중)가 평소보다 정한 % 이상 내리거나(기본) 오를 때.</li>
+      <li><b>강도</b>: 평소 출렁이는 폭의 몇 배 이상 벗어났는지입니다. 늘 ±20%씩 출렁이는 어종이 매일 걸리지 않게 합니다. 0이면 보지 않습니다.</li>
     </ul>
-    <p>민감도 '낮음'은 큰 변화만(변동률 30% 이상), '높음'은 작은 변화도(15% 이상) 알립니다. 2026년 9~11월 자료로 보면 '보통'에서 하루 1~2건입니다.</p>`],
+    <p><b>감지 방식</b></p>
+    <ul>
+      <li><b>그리고(추천)</b>: 입하량 급증과 가격 하락이 같은 날 함께 일어나야 알립니다. 물량 때문에 값이 빠진 날만 골라냅니다.</li>
+      <li><b>또는</b>: 둘 중 하나만 일어나도 알립니다. 알림이 많아집니다.</li>
+      <li><b>입하량 급증만 / 가격 변화만</b>: 한쪽만 봅니다.</li>
+    </ul>
+    <div class="tip">최근 1년(317거래일) 자료로 보면 기본 감시 어종·'그리고' 방식에서 '알림 많이'는 하루 2건, '보통(기본)'은 하루 0.9건, '알림 적게'는 하루 0.1건(열흘에 1~2건) 정도입니다.</div>`],
   rules: ["알림 규칙 만드는 법", `
     <p>규칙 하나는 <b>어종·상태</b>와 <b>조건 1~5개</b>로 이뤄집니다. 조건들을 <b>모두 만족(AND)</b> 또는 <b>하나라도 만족(OR)</b>으로 묶습니다.</p>
     <ul>

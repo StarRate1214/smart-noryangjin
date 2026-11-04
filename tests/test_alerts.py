@@ -64,7 +64,7 @@ def test_describe_rule_reads_like_a_sentence():
 
 
 def test_validate_reports_each_problem():
-    bad = {"auto": {"sensitivity": "max"}, "rules": [
+    bad = {"auto": {"mode": "max"}, "rules": [
         {"type": "change", "species": "", "state": "x", "metric": "price", "value": -1, "unit": "won",
          "direction": "sideways", "base_days": 30},
         {"type": "level", "species": "방어", "state": "활", "metric": "avg", "value": 1, "op": "near"},
@@ -87,12 +87,116 @@ def test_evaluate_applies_star_rules_only_to_major_series():
     assert fired[0]["text"].startswith("(활)방어 평균가 13,000원 (+30%, 기준 10,000원)")
 
 
-def test_auto_watch_catches_a_jump_but_not_usual_noise():
+CALM_PRICE = [10000, 10300, 9800, 10100, 9900, 10200, 10000, 9700, 10100, 10000]
+CALM_VOLUME = [500, 520, 480, 510, 490, 505, 500, 495, 515, 500]
+
+
+def auto_series(price, volume):
+    s = series(CALM_PRICE + [price])
+    for d, v in zip(sorted(s), CALM_VOLUME + [volume]):
+        s[d]["volume"] = v
+    return s
+
+
+def run_auto(auto, price, volume):
+    values = {"부시리|활": auto_series(price, volume)}
+    fired = alerts.evaluate({"auto": auto, "rules": []}, values, FROZEN_TODAY.isoformat())
+    return [[h["metric"] for h in a["hits"]] for a in fired]
+
+
+@pytest.mark.parametrize("price, volume, expected", [
+    (8500, 1000, [["volume", "avg"]]),  # 물량이 두 배로 몰리고 값이 15% 빠짐: 기본 알림 대상
+    (10000, 1000, []),                  # 물량만 늘고 값은 그대로
+    (8500, 500, []),                    # 값만 빠짐
+    (11500, 1000, []),                  # 물량이 늘었는데 값은 오름(사기 좋은 날이 아님)
+])
+def test_default_auto_watch_catches_volume_surge_with_price_drop(price, volume, expected):
+    assert run_auto({}, price, volume) == expected
+
+
+@pytest.mark.parametrize("auto, price, volume, expected", [
+    ({"mode": "any"}, 10000, 1000, [["volume"]]),
+    ({"mode": "any"}, 8500, 500, [["avg"]]),
+    ({"mode": "volume"}, 8500, 1000, [["volume"]]),
+    ({"mode": "price", "price": {"direction": "up"}}, 11500, 500, [["avg"]]),
+    ({"mode": "price", "price": {"direction": "both"}}, 8500, 500, [["avg"]]),
+    ({"mode": "price"}, 11500, 500, []),
+    ({"volume": {"ratio": 2.5}}, 8500, 1000, []),         # 배수를 높이면 2배로는 걸리지 않는다
+    ({"volume": {"min_kg": 600}}, 8500, 1000, []),        # 늘어난 양 500kg < 600kg
+    ({"price": {"pct": 20}}, 8500, 1000, []),             # 15% 하락 < 20%
+    ({"enabled": False}, 8500, 1000, []),
+])
+def test_auto_watch_options(auto, price, volume, expected):
+    assert run_auto(auto, price, volume) == expected
+
+
+def test_auto_strength_ignores_species_that_always_swing():
+    swing = [10000, 13000, 8000, 12500, 8200, 13000, 7800, 12800, 8100, 12000]
+    s = series(swing + [8800])  # 평소 중앙값보다 15% 남짓 낮지만 늘 이 정도로 출렁인다
+    for d, v in zip(sorted(s), CALM_VOLUME + [1000]):
+        s[d]["volume"] = v
     latest = FROZEN_TODAY.isoformat()
-    calm = [10000, 10300, 9800, 10100, 9900, 10200, 10000, 9700, 10100, 10000]
-    values = {"방어|활": series(calm + [14000]), "참돔|활": series(calm + [10400])}
-    fired = alerts.evaluate({"auto": {"enabled": True, "sensitivity": "normal"}, "rules": []}, values, latest)
-    assert [(a["key"], a["metric"]) for a in fired] == [("방어|활", "avg")]
+    calm = alerts.evaluate({"auto": {"price": {"strength": 0}}, "rules": []}, {"부시리|활": s}, latest)
+    strict = alerts.evaluate({"auto": {"price": {"strength": 1}}, "rules": []}, {"부시리|활": s}, latest)
+    assert len(calm) == 1 and strict == []
+
+
+def test_auto_watches_the_live_fish_arrival_list_only():
+    latest = FROZEN_TODAY.isoformat()
+    surge = auto_series(8500, 1000)
+    values = {"부시리|활": surge, "부시리|선": surge, "흰다리새우|활": surge, "넙치#양식|활": surge, "넙치|활": surge}
+    fired = alerts.evaluate({"auto": {}, "rules": []}, values, latest)
+    # 활어만, 표에 있는 품목만, 넙치는 구분별(자연산·양식)로 본다
+    assert sorted(a["key"] for a in fired) == ["넙치#양식|활", "부시리|활"]
+    assert [a["label"] for a in fired if a["key"] == "넙치#양식|활"] == ["(활)넙치(양식)"]
+
+
+def test_auto_watch_can_turn_species_off_and_add_others():
+    latest = FROZEN_TODAY.isoformat()
+    surge = auto_series(8500, 1000)
+    values = {"부시리|활": surge, "흰다리새우|활": surge}
+    fired = alerts.evaluate({"auto": {"off": ["부시리"], "extra": ["흰다리새우"]}, "rules": []}, values, latest)
+    assert [a["key"] for a in fired] == ["흰다리새우|활"]
+
+
+def test_watch_list_matches_the_arrival_sheet():
+    assert len(alerts.WATCH_LIST) == 29
+    assert ("방어", "수입") in alerts.WATCH_LIST and ("흑점줄전갱이", "") in alerts.WATCH_LIST
+    for species, kind in alerts.WATCH_LIST:
+        if kind:
+            default, rules = pipeline.KIND_RULES[species]
+            assert kind in {default, *rules}, f"{species} 에 '{kind}' 구분 규칙이 없습니다"
+
+
+def test_daily_values_split_by_kind():
+    rows = [
+        [day(0), "넙치", "양식", "활", "제주도", "1미", "kg", 10.0, 1.0, 20000.0, 15000.0, 18000.0],
+        [day(0), "넙치", "자연산", "활", "여수", "1미", "kg", 2.0, 1.0, 40000.0, 30000.0, 35000.0],
+    ]
+    values = alerts.daily_values(rows)
+    assert values["넙치#양식|활"][day(0)]["volume"] == 10 and values["넙치#자연산|활"][day(0)]["volume"] == 2
+    assert values["넙치|활"][day(0)]["volume"] == 12
+
+
+def test_old_auto_settings_keep_only_on_off():
+    auto = alerts.normalize_auto({"enabled": False, "sensitivity": "high"})
+    assert auto == {**alerts.AUTO_DEFAULT, "enabled": False}
+    assert alerts.validate({"auto": {"enabled": True, "sensitivity": "normal"}, "rules": []}) == []
+
+
+def test_validate_auto_ranges():
+    auto = {"window": 3, "off": "넙치", "volume": {"ratio": 0.5, "min_kg": -1, "strength": 11},
+            "price": {"direction": "side", "pct": 150}}
+    errors = alerts.validate({"auto": auto, "rules": []})
+    assert len(errors) == 7, errors
+
+
+def test_auto_alert_text_names_both_hits():
+    fired = alerts.evaluate({"auto": {}, "rules": []}, {"부시리|활": auto_series(8500, 1000)}, FROZEN_TODAY.isoformat())
+    assert fired[0]["up"] is False
+    assert fired[0]["text"].startswith("(활)부시리 입하량 1,000kg (+100%, 기준 500kg), 평균가 8,500원 (−15%")
+    rule = "활어 입하량 평소의 1.5배·300kg 이상 증가 그리고 평균가 10% 이상 하락 (직전 10거래일 대비)"
+    assert rule in fired[0]["text"]
 
 
 def test_daily_values_combine_states_and_count_lots():

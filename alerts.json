@@ -1,7 +1,20 @@
 {
   "auto": {
     "enabled": true,
-    "sensitivity": "normal"
+    "mode": "both",
+    "window": 10,
+    "off": [],
+    "extra": [],
+    "volume": {
+      "ratio": 1.5,
+      "min_kg": 300,
+      "strength": 1
+    },
+    "price": {
+      "direction": "down",
+      "pct": 10,
+      "strength": 1
+    }
   },
   "rules": [
     {

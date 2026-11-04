@@ -3,5 +3,30 @@
     "enabled": true,
     "sensitivity": "normal"
   },
-  "rules": []
+  "rules": [
+    {
+      "id": "rmw1z3w03",
+      "enabled": true,
+      "species": "왕게",
+      "state": "",
+      "metric": "volume",
+      "type": "change",
+      "base_days": 10,
+      "direction": "up",
+      "unit": "pct",
+      "value": 24
+    },
+    {
+      "id": "rmw1z4nt0",
+      "enabled": true,
+      "species": "*",
+      "state": "활",
+      "metric": "avg",
+      "type": "change",
+      "base_days": 5,
+      "direction": "down",
+      "unit": "pct",
+      "value": 20
+    }
+  ]
 }

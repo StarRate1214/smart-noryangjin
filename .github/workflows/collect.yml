@@ -107,7 +107,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data index.html
           git diff --cached --quiet || git commit -m "chore: update market data $(TZ=Asia/Seoul date +%F)"
-          git push
+          # GitHub 가 push 를 일시적으로 거부하는 일이 있어(2026-11-04 Internal Server Error) 받은 데이터를 버리지 않도록
+          # 다시 시도한다. 그 사이 main 이 앞서 나갔으면 그 위로 올린다.
+          for i in 1 2 3; do
+            git push && exit 0
+            sleep $(( i * 15 ))
+            git pull --rebase origin main || true
+          done
+          exit 1
 
       - name: Fail on the last attempt
         if: steps.collect.outcome == 'failure' && inputs.final

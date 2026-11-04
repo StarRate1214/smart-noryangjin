@@ -41,6 +41,7 @@ concurrency:
 jobs:
   attempt-1:
     uses: ./.github/workflows/collect.yml
+    secrets: inherit
     with:
       attempt: 1
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
@@ -54,6 +55,7 @@ jobs:
     needs: attempt-1
     if: needs.attempt-1.outputs.collected != 'true'
     uses: ./.github/workflows/collect.yml
+    secrets: inherit
     with:
       attempt: 2
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
@@ -67,6 +69,7 @@ jobs:
     needs: attempt-2
     if: needs.attempt-2.outputs.collected != 'true'
     uses: ./.github/workflows/collect.yml
+    secrets: inherit
     with:
       attempt: 3
       final: true

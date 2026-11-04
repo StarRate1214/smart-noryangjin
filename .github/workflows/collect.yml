@@ -82,6 +82,16 @@ jobs:
         if: steps.collect.outcome == 'success'
         run: pytest tests/test_data.py -q
 
+      # 최근 거래일에 걸린 새 알림을 ntfy 로 보낸다. 보낸 기록(data/alerts_sent.json)은 아래에서 함께 커밋한다.
+      # 알림이 실패해도 수집한 데이터는 커밋하도록 이 단계의 실패는 넘어간다. 기간 백필에서는 보내지 않는다.
+      - name: Send alerts
+        if: steps.collect.outcome == 'success' && inputs.backfill_from == ''
+        continue-on-error: true
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PAGE_URL: ${{ vars.PAGE_URL }}
+        run: python alerts.py --send
+
       # 실패 원인을 가린다. 연결 자체가 안 되면 이 IP 가 막힌 것이고, 연결은 되는데 실패하면 요청이나 응답 문제다.
       - name: Diagnose connection
         if: steps.collect.outcome == 'failure'

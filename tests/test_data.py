@@ -72,3 +72,10 @@ def test_index_html_has_data():
     assert ref["dates"] == sorted(ref["dates"])
     for entries in ref["series"].values():
         assert all(len(e) == 6 and 0 <= e[0] < len(ref["dates"]) for e in entries)
+
+
+def test_alert_rules_are_valid():
+    import alerts
+
+    config = json.loads((ROOT / "alerts.json").read_text(encoding="utf-8"))
+    assert alerts.validate(config) == [], "alerts.json 규칙 형식이 틀렸습니다"

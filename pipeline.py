@@ -345,7 +345,23 @@ def sample_reference(rows):
     return summarize(sample_rows(dates))
 
 
-def render_page(rows, source, reference=None):
+def alert_info(source):
+    """알림 설정 탭에 넣을 값. 샘플 화면에서는 판정하지 않는다."""
+    import alerts  # alerts 가 pipeline 을 불러 쓰므로 여기서 불러온다
+
+    # alerts.json 이 잘못돼도 시세 수집과 페이지 생성은 막지 않는다. 오류는 알림 설정 탭에 보인다
+    try:
+        config = alerts.load_config()
+        fired = alerts.run() if source == "live" else []
+        error = ""
+    except SystemExit as exc:
+        config, fired, error = json.loads(json.dumps(alerts.DEFAULT_CONFIG)), [], str(exc)
+    keep = ("date", "label", "metric", "text", "up", "id")
+    return {"config": config, "fired": [{k: a[k] for k in keep} for a in fired], "error": error,
+            "date": fired[0]["date"] if fired else alerts.latest_date()}
+
+
+def render_page(rows, source, reference=None, alert_info=None):
     payload = {
         "fields": ROW_FIELDS,
         "rows": rows,
@@ -358,6 +374,10 @@ def render_page(rows, source, reference=None):
         "sample": source == "sample",
         "ref": reference or {"dates": [], "series": {}},
         "refMonths": REF_MONTHS,
+        # 알림 설정 탭: 저장된 규칙, 최근 거래일에 걸린 알림, 규칙을 저장할 저장소
+        "alerts": alert_info or {"config": {"auto": {"enabled": True, "sensitivity": "normal"}, "rules": []},
+                                 "fired": [], "date": None},
+        "repo": os.environ.get("GITHUB_REPOSITORY") or "StarRate1214/smart-noryangjin",
         "updated": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
     }
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
@@ -379,7 +399,7 @@ def main():
 
     latest = datetime.date.fromisoformat(max(r[0] for r in rows))
     reference = summarize(reference_rows(latest)) if source == "live" else sample_reference(rows)
-    OUTPUT_FILE.write_text(render_page(rows, source, reference), encoding="utf-8")
+    OUTPUT_FILE.write_text(render_page(rows, source, reference, alert_info(source)), encoding="utf-8")
     print(f"완료: {OUTPUT_FILE.relative_to(ROOT)} 생성 ({len(rows)}행, {len({r[1] for r in rows})}종, 소스={source})")
 
 

@@ -536,3 +536,22 @@ def test_alert_rules_save_to_github_with_token(page):
     saved = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
     assert len(saved["rules"]) == 1 and saved["auto"]["sensitivity"] == "normal"
     assert page.is_disabled("#saveGitHub")  # 저장한 뒤에는 바뀐 것이 없다
+
+
+@pytest.mark.parametrize("key, title, text", [
+    ("token", "GitHub 토큰 만드는 법", "Read and write"),
+    ("ntfy", "휴대폰 알림(ntfy) 설정", "NTFY_TOPIC"),
+    ("auto", "자동 감시는 어떻게 판단하나요", "평소 움직임"),
+    ("rules", "알림 규칙 만드는 법", "2 배"),
+])
+def test_help_buttons_open_and_close_explanations(page, key, title, text):
+    page.click("#tab-alert")
+    page.locator(f'button.help[data-help="{key}"]').first.click()
+    dialog = page.locator("#helpDialog")
+    assert dialog.is_visible()
+    assert page.inner_text("#helpTitle") == title and text in page.inner_text("#helpBody")
+    page.click("#helpClose")
+    assert not dialog.is_visible()
+    page.locator(f'button.help[data-help="{key}"]').first.click()
+    page.keyboard.press("Escape")
+    assert not dialog.is_visible()

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import alerts
 import pipeline
 from tests.conftest import ROOT
 
@@ -60,7 +61,10 @@ def build_reference(kind, rows):
 @pytest.fixture(params=["sample", "real"])
 def site(request, tmp_path, frozen_today):
     rows = build_rows(request.param)
-    html = pipeline.render_page(rows, request.param, build_reference(request.param, rows))
+    # 알림 설정은 저장소의 실제 alerts.json 대신 기본 설정으로 연다(테스트가 사용자 규칙에 흔들리지 않게)
+    alert_info = {"config": json.loads(json.dumps(alerts.DEFAULT_CONFIG)), "fired": [], "date": None, "error": "",
+                  "watch": [[alerts.watch_id(s, k), s, k] for s, k in alerts.WATCH_LIST]}
+    html = pipeline.render_page(rows, request.param, build_reference(request.param, rows), alert_info)
     (tmp_path / "index.html").write_text(html, encoding="utf-8")
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(tmp_path))
     http.server.SimpleHTTPRequestHandler.log_message = lambda *a: None
@@ -534,14 +538,15 @@ def test_alert_rules_save_to_github_with_token(page):
     payload = json.loads(body)
     assert payload["sha"] == "abc" and payload["branch"] == "main"
     saved = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
-    assert len(saved["rules"]) == 1 and saved["auto"]["sensitivity"] == "normal"
+    assert len(saved["rules"]) == 1
+    assert saved["auto"]["mode"] == "both" and saved["auto"]["price"]["direction"] == "down"
     assert page.is_disabled("#saveGitHub")  # 저장한 뒤에는 바뀐 것이 없다
 
 
 @pytest.mark.parametrize("key, title, text", [
     ("token", "GitHub 토큰 만드는 법", "Read and write"),
     ("ntfy", "휴대폰 알림(ntfy) 설정", "NTFY_TOPIC"),
-    ("auto", "자동 감시는 어떻게 판단하나요", "평소 움직임"),
+    ("auto", "자동 감시는 어떻게 판단하나요", "사기 좋은 날"),
     ("rules", "알림 규칙 만드는 법", "2 배"),
 ])
 def test_help_buttons_open_and_close_explanations(page, key, title, text):
@@ -555,3 +560,50 @@ def test_help_buttons_open_and_close_explanations(page, key, title, text):
     page.locator(f'button.help[data-help="{key}"]').first.click()
     page.keyboard.press("Escape")
     assert not dialog.is_visible()
+
+
+
+def test_auto_watch_options_and_presets(page):
+    open_alert_tab(page)
+    says = page.locator("#autoSays")
+    expected = "감시 어종 29개의 활어에서, 입하량이 평소의 1.5배 이상·300kg 이상 늘고 그리고 평균가가 10% 이상 내림"
+    assert expected in says.inner_text()
+    page.click('#autoBox button[data-preset="few"]')
+    auto = json.loads(page.inner_text("#jsonPreview"))["auto"]
+    assert auto["volume"] == {"ratio": 2, "min_kg": 500, "strength": 2} and auto["price"]["pct"] == 15
+    page.locator("#autoBox select").first.select_option("price")  # 감지 방식: 가격 변화만
+    assert page.locator('#autoBox input[aria-label="입하량 배수"]').count() == 0
+    price = page.locator('#autoBox input[aria-label="가격 변동률"]')
+    price.fill("25")
+    price.dispatch_event("change")
+    auto = json.loads(page.inner_text("#jsonPreview"))["auto"]
+    assert auto["mode"] == "price" and auto["price"]["pct"] == 25
+    assert "평균가가 25% 이상 내림 (직전 10거래일 대비)" in says.inner_text()
+    ratio_mode = page.locator("#autoBox select").first
+    ratio_mode.select_option("both")
+    ratio = page.locator('#autoBox input[aria-label="입하량 배수"]')
+    ratio.fill("0.5")
+    ratio.dispatch_event("change")
+    assert "입하량 배수는 1~20" in page.inner_text("#ruleErrors")
+    assert page.is_disabled("#saveGitHub")
+
+
+
+def test_auto_watch_species_switches(page):
+    open_alert_tab(page)
+    switches = page.locator("#autoBox .switch input")
+    assert switches.count() == 29
+    assert "넙치 양식" in page.inner_text("#autoBox .watch-grid")
+    page.locator('#autoBox .switch:has(input[data-watch="넙치#양식"])').click()
+    auto = json.loads(page.inner_text("#jsonPreview"))["auto"]
+    assert auto["off"] == ["넙치#양식"]
+    assert "28/29" in page.inner_text("#autoBox .watch-head") and "감시 어종 28개" in page.inner_text("#autoSays")
+    page.locator("#autoBox .watch-head button", has_text="모두 끄기").click()
+    assert len(json.loads(page.inner_text("#jsonPreview"))["auto"]["off"]) == 29
+    page.locator("#autoBox .watch-head button", has_text="모두 켜기").click()
+    box = page.locator('#autoBox input[aria-label="감시 어종 추가"]')
+    box.fill("방어")  # 표의 방어는 국산·수입으로 나뉘어 있어, 둘을 합친 방어를 따로 더할 수 있다
+    box.press("Enter")
+    assert json.loads(page.inner_text("#jsonPreview"))["auto"]["extra"] == ["방어"]
+    page.locator('#autoBox .chip.extra button[aria-label="방어 빼기"]').click()
+    assert json.loads(page.inner_text("#jsonPreview"))["auto"]["extra"] == []

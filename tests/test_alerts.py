@@ -60,7 +60,7 @@ def test_describe_rule_reads_like_a_sentence():
     rule = change_rule(base_days=5, direction="up")
     assert alerts.describe_rule(rule) == "평균가 직전 5거래일 평균 대비 20% 이상 상승"
     level = {"type": "level", "metric": "volume", "op": "below", "value": 1000}
-    assert alerts.describe_rule(level) == "경락량 1,000kg 이하"
+    assert alerts.describe_rule(level) == "입하량 1,000kg 이하"
 
 
 def test_validate_reports_each_problem():
@@ -70,7 +70,7 @@ def test_validate_reports_each_problem():
         {"type": "level", "species": "방어", "state": "활", "metric": "avg", "value": 1, "op": "near"},
     ]}
     errors = alerts.validate(bad)
-    assert len(errors) == 9
+    assert len(errors) == 9, errors
     assert alerts.validate(json.loads((pipeline.ROOT / "alerts.json").read_text(encoding="utf-8"))) == []
 
 
@@ -108,7 +108,7 @@ def test_daily_values_combine_states_and_count_lots():
 
 def fired_alert(**kw):
     a = {"id": "r1", "key": "방어|활", "metric": "avg", "date": day(0), "up": True, "label": "(활)방어",
-         "text": "(활)방어 평균가 13,000원"}
+         "text": "(활)방어 평균가 13,000원", "hits": [{"metric": "avg"}]}
     a.update(kw)
     return a
 
@@ -118,9 +118,10 @@ def test_send_skips_alerts_already_sent_today(tmp_path, monkeypatch):
     posted = []
     monkeypatch.setattr(alerts, "publish", lambda topic, title, message, tags, click: posted.append((title, tags)))
     assert alerts.send([fired_alert()], "topic") == 1
-    assert alerts.send([fired_alert(), fired_alert(metric="volume", up=False)], "topic") == 1
+    volume = fired_alert(metric="volume", up=False, hits=[{"metric": "volume"}])
+    assert alerts.send([fired_alert(), volume], "topic") == 1
     assert posted == [("노량진 (활)방어 평균가", ["chart_with_upwards_trend", "fish"]),
-                      ("노량진 (활)방어 경락량", ["chart_with_downwards_trend", "fish"])]
+                      ("노량진 (활)방어 입하량", ["chart_with_downwards_trend", "fish"])]
 
 
 def test_send_bundles_alerts_over_the_limit(tmp_path, monkeypatch):
@@ -168,3 +169,69 @@ def test_broken_alert_config_does_not_stop_the_page(monkeypatch, tmp_path):
     monkeypatch.setattr(alerts, "CONFIG_FILE", broken)
     info = pipeline.alert_info("live")
     assert "형식 오류" in info["error"] and info["config"] == alerts.DEFAULT_CONFIG and info["fired"] == []
+
+
+@pytest.mark.parametrize("direction, values, fired", [
+    ("up", [500, 500, 500, 500, 500, 1000], True),    # 평소 500kg -> 오늘 1000kg 은 2배
+    ("up", [500, 500, 500, 500, 500, 900], False),
+    ("down", [500, 500, 500, 500, 500, 250], True),   # 2배 하락 = 절반 이하
+    ("down", [500, 500, 500, 500, 500, 300], False),
+    ("both", [500, 500, 500, 500, 500, 1000], True),
+])
+def test_ratio_condition(direction, values, fired):
+    cond = {"type": "change", "metric": "volume", "base_days": 5, "unit": "ratio", "direction": direction, "value": 2}
+    past, now = alerts.history(series(values, "volume"), FROZEN_TODAY.isoformat())
+    assert (alerts.check_condition(cond, past, now) is not None) == fired
+
+
+def combined_rule(match):
+    return {"species": "방어", "state": "활", "match": match, "conditions": [
+        {"type": "change", "metric": "volume", "base_days": 5, "unit": "ratio", "direction": "up", "value": 2},
+        {"type": "change", "metric": "avg", "base_days": 1, "unit": "pct", "direction": "down", "value": 10},
+    ]}
+
+
+@pytest.mark.parametrize("match, volume, price, hits", [
+    ("all", 1000, 8500, 2),
+    ("all", 1000, 10000, None),   # 입하량만 늘고 가격은 그대로
+    ("any", 1000, 10000, 1),
+    ("any", 500, 8500, 1),
+    ("any", 500, 10000, None),
+])
+def test_and_or_rules(match, volume, price, hits):
+    s = series([10000] * 5 + [price])
+    for i, d in enumerate(sorted(s)):
+        s[d]["volume"] = 500 if i < 5 else volume
+    past, now = alerts.history(s, FROZEN_TODAY.isoformat())
+    result = alerts.check_rule(combined_rule(match), past, now)
+    assert (result and len(result["hits"])) == hits
+
+
+def test_combined_rule_message_lists_every_hit():
+    s = series([10000] * 5 + [8500])
+    for i, d in enumerate(sorted(s)):
+        s[d]["volume"] = 500 if i < 5 else 1000
+    config = {"auto": {"enabled": False}, "rules": [combined_rule("all")]}
+    (a,) = alerts.evaluate(config, {"방어|활": s}, FROZEN_TODAY.isoformat())
+    assert a["text"] == ("(활)방어 입하량 1,000kg (+100%, 기준 500kg), 평균가 8,500원 (−15%, 기준 10,000원) · "
+                         "입하량 직전 5거래일 평균의 2배 이상 그리고 평균가 직전 거래일 대비 10% 이상 하락")
+
+
+def test_old_flat_rules_still_work():
+    flat = change_rule(direction="up")
+    assert alerts.normalize_rule(flat)["conditions"] == [
+        {"metric": "avg", "type": "change", "base_days": 1, "direction": "up", "unit": "pct", "value": 20}]
+    assert alerts.validate({"rules": [flat]}) == []
+    past, now = alerts.history(series([10000, 12500]), FROZEN_TODAY.isoformat())
+    assert alerts.check_rule(flat, past, now)["hits"][0]["pct"] == 25
+
+
+def test_validate_checks_match_and_conditions():
+    rule = combined_rule("maybe")
+    rule["conditions"][0]["value"] = 1  # 배수는 1보다 커야 한다
+    errors = alerts.validate({"rules": [rule, {**combined_rule("all"), "conditions": []}]})
+    assert errors == [
+        "규칙 1: match 는 all(그리고) 또는 any(또는)입니다",
+        "규칙 1 조건 1: 배수(ratio)는 1보다 커야 합니다",
+        "규칙 2: 조건은 1~5개입니다",
+    ]

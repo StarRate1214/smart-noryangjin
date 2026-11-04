@@ -470,22 +470,31 @@ def test_alert_rule_editor_builds_config(page, site):
     rule = page.locator(".rule").first
     rule.locator("input[type=text]").fill("*")
     rule.locator("input[type=text]").dispatch_event("change")
-    selects = rule.locator("select")
-    selects.nth(1).select_option("volume")      # 항목: 경락량
-    selects.nth(3).select_option("5")           # 기준: 직전 5거래일 평균
-    selects.nth(4).select_option("up")          # 방향: 상승
-    rule.locator("input[type=number]").fill("50")
-    rule.locator("input[type=number]").dispatch_event("change")
-    assert "직전 5거래일 평균보다 50% 이상 오르면" in page.locator(".rule .says").first.inner_text()
+    cond = rule.locator(".cond").first
+    selects = cond.locator("select")
+    selects.nth(0).select_option("volume")      # 항목: 입하량
+    selects.nth(2).select_option("5")           # 기준: 직전 5거래일 평균
+    selects.nth(3).select_option("up")          # 방향: 상승
+    page.locator(".rule .cond").first.locator("select").nth(4).select_option("ratio")  # 단위: 배
+    assert "입하량이 직전 5거래일 평균의 2배 이상" in page.locator(".rule .says").first.inner_text()
     config = json.loads(page.inner_text("#jsonPreview"))
     saved = config["rules"][0]
-    assert {k: saved[k] for k in ("species", "metric", "base_days", "direction", "unit", "value")} == {
-        "species": "*", "metric": "volume", "base_days": 5, "direction": "up", "unit": "pct", "value": 50}
+    assert saved["species"] == "*" and saved["match"] == "all"
+    assert saved["conditions"] == [{"metric": "volume", "type": "change", "base_days": 5, "direction": "up",
+                                    "unit": "ratio", "value": 2}]
     assert "저장하지 않은 변경" in page.inner_text("#saveState")
 
-    page.locator(".rule select").nth(2).select_option("level")  # 조건 종류: 수준
-    level = json.loads(page.inner_text("#jsonPreview"))["rules"][0]
+    # 두 번째 조건을 더하고 OR 로 묶는다
+    page.locator(".rule .add-cond").first.click()
+    page.locator(".rule .rule-head select").nth(1).select_option("any")
+    second = page.locator(".rule .cond").nth(1)
+    assert second.locator(".join").inner_text() == "또는"
+    second.locator("select").nth(1).select_option("level")  # 조건 종류: 수준
+    rule_json = json.loads(page.inner_text("#jsonPreview"))["rules"][0]
+    assert rule_json["match"] == "any" and len(rule_json["conditions"]) == 2
+    level = rule_json["conditions"][1]
     assert level["type"] == "level" and level["op"] == "above" and "base_days" not in level
+    assert " 또는 " in page.locator(".rule .says").first.inner_text()
     # 임시 저장된 편집은 새로 고쳐도 남는다
     page.reload()
     page.wait_for_selector("#weekTable tbody tr", state="attached")

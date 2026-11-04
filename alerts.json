@@ -8,14 +8,14 @@
     ],
     "extra": [],
     "volume": {
-      "ratio": 1.5,
-      "min_kg": 300,
-      "strength": 1
+      "ratio": 1.3,
+      "min_kg": 200,
+      "strength": 0
     },
     "price": {
       "direction": "down",
-      "pct": 10,
-      "strength": 1
+      "pct": 8,
+      "strength": 0
     }
   },
   "rules": [

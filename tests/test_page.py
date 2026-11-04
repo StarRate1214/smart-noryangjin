@@ -2,6 +2,7 @@
 
 외부 네트워크 없이 돌도록 cdn.plot.ly 요청은 plotly 파이썬 패키지에 든 plotly.js 로 돌려준다.
 """
+import datetime
 import functools
 import http.server
 import os
@@ -47,10 +48,18 @@ def build_rows(kind):
     return pipeline.sample_rows() if kind == "sample" else pipeline.live_rows()
 
 
+def build_reference(kind, rows):
+    if kind == "sample":
+        return pipeline.sample_reference(rows)
+    latest = datetime.date.fromisoformat(max(r[0] for r in rows))
+    return pipeline.summarize(pipeline.reference_rows(latest))
+
+
 @pytest.fixture(params=["sample", "real"])
 def site(request, tmp_path, frozen_today):
     rows = build_rows(request.param)
-    (tmp_path / "index.html").write_text(pipeline.render_page(rows, request.param), encoding="utf-8")
+    html = pipeline.render_page(rows, request.param, build_reference(request.param, rows))
+    (tmp_path / "index.html").write_text(html, encoding="utf-8")
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(tmp_path))
     http.server.SimpleHTTPRequestHandler.log_message = lambda *a: None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -404,3 +413,42 @@ def test_band_never_drops_below_low_line(page, site):
             assert lower >= low - 1, (low, lower)
             checked += 1
     assert checked > 0
+
+
+def test_reference_lines_are_drawn_and_toggle(page, site):
+    page.click("#tab-price")
+    shown = trace_visibility(page)
+    assert shown["작년 같은 시기 평균가"] is True and shown["직전 3개월 평균가"] is True
+    ys = trace_field(page, "y")
+    m3 = {v for v in ys["직전 3개월 평균가"] if v is not None}
+    assert len(m3) <= 1  # 직전 3개월 평균은 수평선이다
+    if site["kind"] == "sample":
+        assert m3 and any(v is not None for v in ys["작년 같은 시기 평균가"])
+    page.uncheck('#series input[data-series="yoy"]')
+    assert trace_visibility(page)["작년 같은 시기 평균가"] is False
+
+
+def test_level_card_compares_with_last_year_and_recent_months(page, site):
+    page.click("#tab-price")
+    if site["kind"] != "sample":
+        return  # 실제 원본은 작년 자료가 쌓이기 전일 수 있다
+    value = page.inner_text("#levelValue")
+    assert "작년" in value and "직전 3개월 대비" in value
+    assert re.search(r"[+−±]\d+%", value)
+    assert page.locator("#gauge").is_visible()
+    assert page.locator("#gauge .now").count() == 1
+
+
+def test_saved_series_gains_new_reference_lines_once(page):
+    page.evaluate("""() => { localStorage.setItem('nr.series', JSON.stringify(['high', 'avg']));
+                             localStorage.removeItem('nr.seriesRef'); }""")
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-price")
+    assert page.is_checked('#series input[data-series="yoy"]') and page.is_checked('#series input[data-series="m3"]')
+    assert not page.is_checked('#series input[data-series="low"]')
+    page.uncheck('#series input[data-series="m3"]')
+    page.reload()
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    page.click("#tab-price")
+    assert not page.is_checked('#series input[data-series="m3"]')  # 한 번 켠 뒤로는 사용자의 선택을 따른다

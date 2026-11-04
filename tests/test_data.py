@@ -67,3 +67,8 @@ def test_index_html_has_data():
     assert payload["rows"], "페이지에 시세 행이 없습니다"
     assert all(len(r) == len(payload["fields"]) for r in payload["rows"])
     assert set(payload["species"]) == {r[1] for r in payload["rows"]}
+    # 작년 같은 달·직전 3개월 비교용 일별 요약
+    ref = payload["ref"]
+    assert ref["dates"] == sorted(ref["dates"])
+    for entries in ref["series"].values():
+        assert all(len(e) == 6 and 0 <= e[0] < len(ref["dates"]) for e in entries)

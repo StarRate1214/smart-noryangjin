@@ -17,6 +17,15 @@ on:
       backfill_days:
         description: "원본(data/daily)이 없는 과거 며칠을 채울지"
         default: "7"
+      backfill_from:
+        description: "기간 백필 시작일 YYYY-MM-DD (지정하면 평소 수집 대신 이 기간의 빠진 날짜를 받음)"
+        default: ""
+      backfill_to:
+        description: "기간 백필 종료일 YYYY-MM-DD (비우면 오늘)"
+        default: ""
+      backfill_limit:
+        description: "기간 백필에서 한 번에 받을 최대 날짜 수"
+        default: "60"
 
 permissions:
   contents: write
@@ -37,6 +46,9 @@ jobs:
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
       refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      backfill_from: ${{ inputs.backfill_from || '' }}
+      backfill_to: ${{ inputs.backfill_to || '' }}
+      backfill_limit: ${{ inputs.backfill_limit || '60' }}
 
   attempt-2:
     needs: attempt-1
@@ -47,6 +59,9 @@ jobs:
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
       refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      backfill_from: ${{ inputs.backfill_from || '' }}
+      backfill_to: ${{ inputs.backfill_to || '' }}
+      backfill_limit: ${{ inputs.backfill_limit || '60' }}
 
   attempt-3:
     needs: attempt-2
@@ -58,3 +73,6 @@ jobs:
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
       refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      backfill_from: ${{ inputs.backfill_from || '' }}
+      backfill_to: ${{ inputs.backfill_to || '' }}
+      backfill_limit: ${{ inputs.backfill_limit || '60' }}

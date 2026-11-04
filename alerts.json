@@ -1,9 +1,11 @@
 {
   "auto": {
     "enabled": true,
-    "mode": "both",
-    "window": 10,
-    "off": [],
+    "mode": "any",
+    "window": 5,
+    "off": [
+      "보리새우"
+    ],
     "extra": [],
     "volume": {
       "ratio": 1.5,
@@ -18,28 +20,29 @@
   },
   "rules": [
     {
-      "id": "rmw1z3w03",
+      "id": "rmw27bkdh",
       "enabled": true,
       "species": "왕게",
       "state": "",
-      "metric": "volume",
-      "type": "change",
-      "base_days": 10,
-      "direction": "up",
-      "unit": "pct",
-      "value": 24
-    },
-    {
-      "id": "rmw1z4nt0",
-      "enabled": true,
-      "species": "*",
-      "state": "활",
-      "metric": "avg",
-      "type": "change",
-      "base_days": 5,
-      "direction": "down",
-      "unit": "pct",
-      "value": 20
+      "match": "any",
+      "conditions": [
+        {
+          "metric": "volume",
+          "type": "change",
+          "base_days": 5,
+          "direction": "up",
+          "unit": "pct",
+          "value": 25
+        },
+        {
+          "metric": "avg",
+          "type": "change",
+          "base_days": 5,
+          "direction": "down",
+          "unit": "pct",
+          "value": 15
+        }
+      ]
     }
   ]
 }

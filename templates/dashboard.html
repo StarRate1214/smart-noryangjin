@@ -114,6 +114,23 @@
   .card .label { color: var(--muted); font-size: .82rem; }
   .card .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; color: var(--navy); font-variant-numeric: tabular-nums; }
   .card .detail { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+  .card .value .cmp { font-size: 1.05rem; line-height: 1.45; }
+  .card .value .up { color: #E03131; }
+  .card .value .down { color: #1C7ED6; }
+  /* 가격 수준 게이지: 작년 같은 달과 직전 3개월의 일별 평균가 범위 위에 기준값과 현재 값을 찍는다 */
+  .gauge { position: relative; height: 46px; margin: 12px 4px 2px; }
+  .gauge .track { position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 3px;
+                  background: linear-gradient(90deg, #d0ebff, #f1f3f5 50%, #ffe3e3); }
+  .gauge .mark { position: absolute; top: 8px; width: 2px; height: 18px; margin-left: -1px; }
+  .gauge .mark span { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); font-size: .66rem;
+                      white-space: nowrap; color: var(--muted); }
+  .gauge .mark.ly { background: #868E96; }
+  .gauge .mark.m3 { background: #2B8A3E; }
+  .gauge .mark.m3 span { top: 19px; color: #2B8A3E; }
+  .gauge .now { position: absolute; top: 10px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%;
+                background: #F08C00; border: 2px solid #fff; box-shadow: 0 0 0 1px #F08C00; }
+  .gauge .ends { position: absolute; top: 32px; left: 0; right: 0; display: flex; justify-content: space-between;
+                 font-size: .66rem; color: var(--muted); }
   .chart-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
   .chart-head h2 { text-align: left; }
   #plot { width: 100%; height: 520px; }
@@ -192,6 +209,8 @@
       <div class="group"><span class="group-label">표시</span><div class="chips" id="series"></div></div>
       <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.
         가성비 구간은 평균가(수량 가중)에서 고가까지의 60~80% 지점입니다. 너무 싼 물건은 원물 상태가 나쁘므로 평균가보다 위, 고가 가까이에 두며, 저가선 아래로는 내려가지 않습니다.
+        '작년 같은 시기'는 1년 전 같은 날짜(없으면 앞뒤 3일 안의 가장 가까운 거래일)의 평균가이고, '직전 3개월 평균'은 최근 거래일 앞 3개월의 수량 가중 평균가입니다.
+        두 비교선과 '가격 수준' 카드는 어종과 상태(활어·선어)만 맞춰 계산하며, 산지·규격 필터는 적용하지 않습니다.
         그래프는 위의 버튼이나 (PC에서) 가로로 드래그해 확대하고, 더블클릭하면 전체 보기로 돌아갑니다.</p>
     </div>
 
@@ -199,6 +218,8 @@
       <div class="card"><div class="label" id="lastLabel">최근 경매 최고가</div><div class="value" id="lastHigh">-</div><div class="detail" id="lastDetail"></div></div>
       <div class="card"><div class="label">가성비 매수 구간</div><div class="value" id="zone">-</div><div class="detail" id="zoneDetail"></div></div>
       <div class="card"><div class="label" id="avgLabel">최고가 평균</div><div class="value" id="avgHigh">-</div><div class="detail" id="avgDetail"></div></div>
+      <div class="card" id="levelCard"><div class="label" id="levelLabel">가격 수준 (평균가)</div><div class="value" id="levelValue">-</div>
+        <div class="gauge" id="gauge" hidden></div><div class="detail" id="levelDetail"></div></div>
     </div>
 
     <div class="panel">
@@ -237,8 +258,13 @@ const SERIES = [
   ["avg", "평균가", "border-color:#F08C00"],
   ["low", "저가", "border-color:#1C7ED6"],
   ["band", "가성비 구간", "background:rgba(112,72,232,.25);border:1px dashed #7048E8", "box"],
+  ["yoy", "작년 같은 시기", "border-color:#868E96;border-top-style:dashed"],
+  ["m3", "직전 3개월 평균", "border-color:#2B8A3E;border-top-style:dashed"],
   ["volume", "경락량", "background:#66A3BF", "box"],
 ];
+// 나중에 추가한 그래프 항목. 저장된 선택이 있는 브라우저에도 한 번은 켜서 보여 준다
+const ADDED_SERIES = ["yoy", "m3"];
+const REF_COLOR = { yoy: "#868E96", m3: "#2B8A3E" };
 
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
@@ -463,6 +489,11 @@ const view = {
   series: new Set(load("nr.series", SERIES.map(([key]) => key))),
   xr: null,  // 확대 중인 날짜 범위 [시작 인덱스, 끝 인덱스], null 이면 전체
 };
+if (!load("nr.seriesRef", false)) {
+  ADDED_SERIES.forEach((key) => view.series.add(key));
+  save("nr.series", [...view.series]);
+  save("nr.seriesRef", true);
+}
 
 function openSpecies(species, kind) {
   if (!available.includes(species)) return;
@@ -646,6 +677,65 @@ function dailySeries() {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/* ------------------------------------------------------------------ 비교 기준(작년 같은 시기, 직전 3개월) */
+// DATA.ref 는 '어종|상태'별 일별 요약이다: [날짜 번호, 평균가, 고가, 저가, 가중 수량, 경락량]
+const REF = DATA.ref || { dates: [], series: {} };
+
+function addMonths(s, n) {
+  const d = toDate(s);
+  const target = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d.getDate(), last));
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+}
+
+// 선택한 어종·상태의 일별 요약. 상태가 '전체'면 상태별 요약을 수량 가중으로 합친다
+function refDays(species, state) {
+  const byDate = new Map();
+  Object.entries(REF.series).forEach(([key, list]) => {
+    const [s, st] = key.split("|");
+    if (s !== species || (state && st !== state)) return;
+    list.forEach(([i, avg, , , q]) => {
+      if (avg === null || !q) return;
+      const date = REF.dates[i];
+      const d = byDate.get(date) || { date, pq: 0, q: 0 };
+      d.pq += avg * q; d.q += q;
+      byDate.set(date, d);
+    });
+  });
+  return [...byDate.values()].map((d) => Object.assign(d, { avg: d.pq / d.q })).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+const weighted = (days) => {
+  const q = days.reduce((s, d) => s + d.q, 0);
+  return q ? days.reduce((s, d) => s + d.pq, 0) / q : null;
+};
+
+// 최근 거래일의 평균가를 작년 같은 달, 직전 3개월과 견준다
+function referenceStats() {
+  const days = refDays(view.species, view.state);
+  const cur = [...days].reverse().find((d) => d.date <= LATEST);
+  if (!cur) return null;
+  const from = addMonths(cur.date, -DATA.refMonths);
+  const recent = days.filter((d) => d.date >= from && d.date < cur.date);
+  const month = addMonths(cur.date, -12).slice(0, 7);
+  const lastYear = days.filter((d) => d.date.startsWith(month));
+  return { days, cur, recent, lastYear, month, m3: weighted(recent), ly: weighted(lastYear) };
+}
+
+// 차트 날짜마다 1년 전 같은 날짜의 평균가. 그날 거래가 없으면 앞뒤 3일 안의 가장 가까운 거래일을 쓴다
+function yearAgoSeries(chartDays, refs) {
+  const byDate = new Map(refs.map((d) => [d.date, d]));
+  return chartDays.map((d) => {
+    const base = addMonths(d.date, -12);
+    for (const n of [0, -1, 1, -2, 2, -3, 3]) {
+      const hit = byDate.get(shiftDate(base, n));
+      if (hit) return hit;
+    }
+    return null;
+  });
+}
+
 const TOUCH = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
 let lastDays = [];
 let applyingZoom = false;
@@ -716,12 +806,17 @@ function renderChart(days) {
   });
   const showVolume = on("volume");
   const volumes = days.map((d) => Math.round(d.volume));
+  const stats = referenceStats();
+  const ago = yearAgoSeries(days, stats ? stats.days : []);
+  const yoy = ago.map((r) => (r ? Math.round(r.avg) : null));
+  const m3 = days.map(() => (stats && stats.m3 ? Math.round(stats.m3) : null));
   const priceSeries = [
     on("high") && high, on("avg") && avg, on("low") && low, on("band") && upper, on("band") && lower,
+    on("yoy") && yoy, on("m3") && m3,
   ].filter(Boolean).map(visible).flat();
   const xRange = view.xr ? [i0 - 0.5, i1 + 0.5] : undefined;
 
-  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 구간 상한, 구간 하한, 평균가, 저가, 경락량.
+  // 트레이스 순서가 곧 마우스 호버 정보 순서다: 고가, 구간 상한, 구간 하한, 평균가, 저가, 작년 같은 시기, 직전 3개월, 경락량.
   // 밴드는 fill: "tonexty" 로 바로 앞 트레이스(상한)까지 채우므로 상한 다음에 하한을 둔다.
   applyingZoom = true;
   Plotly.react(plot, [
@@ -741,6 +836,13 @@ function renderChart(days) {
       hovertemplate: "평균가 %{y:,.0f}원 (수량 가중)<extra></extra>" }),
     line("low", "저가", low, { color: STOCK.low, width: 2 }, {
       customdata: days.map((d) => where(d.bottom)), hovertemplate: "저가 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
+    line("yoy", "작년 같은 시기 평균가", yoy, { color: REF_COLOR.yoy, width: 2, dash: "dash" }, {
+      marker: { size: 5, color: REF_COLOR.yoy },
+      customdata: ago.map((r) => (r ? r.date.replaceAll("-", ".") : "")),
+      hovertemplate: "작년 같은 시기 %{y:,.0f}원 (%{customdata})<extra></extra>" }),
+    { x, y: m3, yaxis: "y", mode: "lines", visible: on("m3"), name: `직전 ${DATA.refMonths}개월 평균가`,
+      line: { color: REF_COLOR.m3, width: 2, dash: "dashdot" },
+      hovertemplate: `직전 ${DATA.refMonths}개월 평균 %{y:,.0f}원<extra></extra>` },
     { x, y: volumes, yaxis: "y2", type: "bar", name: "경락량", visible: showVolume,
       marker: { color: PALETTE.sky }, text: showText ? days.map((d) => fmt(d.volume)) : undefined,
       textposition: "outside", textfont: { color: PALETTE.navy, size: 11 }, cliponaxis: false,
@@ -820,6 +922,63 @@ function renderCards(days) {
   set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);
 }
 
+// 가격 수준 카드: 최근 평균가가 작년 같은 달과 직전 3개월에 비해 어느 정도인지 보여 준다
+function renderLevel() {
+  const set = (id, text) => { document.getElementById(id).textContent = text; };
+  const gauge = document.getElementById("gauge");
+  const value = document.getElementById("levelValue");
+  const stats = referenceStats();
+  gauge.hidden = true;
+  gauge.replaceChildren();
+  if (!stats || (stats.ly === null && stats.m3 === null)) {
+    set("levelLabel", "가격 수준 (평균가)");
+    value.textContent = "-";
+    set("levelDetail", stats ? "견줄 작년 같은 달·직전 3개월 거래가 없습니다" : "평균가 기록이 없습니다");
+    return;
+  }
+  const { cur, ly, m3, lastYear, recent, month } = stats;
+  const [y, m] = month.split("-").map(Number);
+  const lyName = `작년 ${m}월`;
+  const change = (base) => (base ? cur.avg / base - 1 : null);
+  const signed = (r) => `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(Math.round(r * 100))}%`;
+  set("levelLabel", `가격 수준 (${md(cur.date)} 평균가 ${won(cur.avg)})`);
+  value.replaceChildren();
+  [[ly, lyName], [m3, `직전 ${DATA.refMonths}개월`]].forEach(([base, name]) => {
+    const r = change(base);
+    if (r === null) return;
+    const line = el("div", { class: "cmp" }, `${name} 대비 `);
+    line.append(el("span", { class: r > 0.005 ? "up" : r < -0.005 ? "down" : "" }, signed(r)));
+    value.append(line);
+  });
+  // 작년 같은 달 일별 평균가 가운데 지금보다 싼 날의 비율
+  const below = lastYear.filter((d) => d.avg < cur.avg).length;
+  set("levelDetail", [
+    ly !== null ? `${y}년 ${m}월 평균 ${won(ly)} (${lastYear.length}일, 그 달 일별 평균가의 ${Math.round((below / lastYear.length) * 100)}%보다 높음)` : `${lyName} 거래 없음`,
+    m3 !== null ? `직전 ${DATA.refMonths}개월 평균 ${won(m3)} (${recent.length}일)` : "",
+  ].filter(Boolean).join(" · "));
+
+  // 게이지 범위: 두 기준 기간의 일별 평균가와 지금 값 전체
+  const values = [...lastYear, ...recent].map((d) => d.avg).concat(cur.avg);
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const pos = (v) => (hi > lo ? ((v - lo) / (hi - lo)) * 100 : 50);
+  gauge.append(el("div", { class: "track" }));
+  if (ly !== null) {
+    const mark = el("div", { class: "mark ly", style: `left:${pos(ly)}%`, title: `${lyName} 평균 ${won(ly)}` });
+    mark.append(el("span", {}, lyName));
+    gauge.append(mark);
+  }
+  if (m3 !== null) {
+    const mark = el("div", { class: "mark m3", style: `left:${pos(m3)}%`, title: `직전 ${DATA.refMonths}개월 평균 ${won(m3)}` });
+    mark.append(el("span", {}, `${DATA.refMonths}개월`));
+    gauge.append(mark);
+  }
+  gauge.append(el("div", { class: "now", style: `left:${pos(cur.avg)}%`, title: `${md(cur.date)} 평균가 ${won(cur.avg)}` }));
+  const ends = el("div", { class: "ends" });
+  ends.append(el("span", {}, won(lo)), el("span", {}, won(hi)));
+  gauge.append(ends);
+  gauge.hidden = false;
+}
+
 function updatePrice() {
   if (!available.length) return;
   renderSpecies();
@@ -834,6 +993,7 @@ function updatePrice() {
     `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${speciesLabel(view.species)} 시세${without}`;
   document.getElementById("chartSub").textContent = `${stateLabel} · 낙찰 고가·평균가·저가(원/kg)와 경락량(kg)`;
   renderCards(days);
+  renderLevel();
   view.xr = null;  // 어종·필터·기간이 바뀌면 전체 보기로 돌아간다
   renderChart(days);
 }

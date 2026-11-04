@@ -16,6 +16,16 @@ on:
       refresh_recent:
         type: string
         default: "1"
+      # 지정하면 평소 수집 대신 이 기간(YYYY-MM-DD)의 빠진 날짜를 오래된 날부터 backfill_limit 개 받는다
+      backfill_from:
+        type: string
+        default: ""
+      backfill_to:
+        type: string
+        default: ""
+      backfill_limit:
+        type: string
+        default: "60"
       # 마지막 시도만 접속 실패를 실패로 끝낸다. 앞선 시도의 접속 실패는 다음 시도가 새 IP 로 다시 해 보므로,
       # 실행 전체가 빨간색으로 끝나 알림 메일이 가지 않도록 경고만 남긴다.
       final:
@@ -62,6 +72,9 @@ jobs:
           DATA_SOURCE: ${{ inputs.source }}
           BACKFILL_DAYS: ${{ inputs.backfill_days }}
           REFRESH_RECENT: ${{ inputs.refresh_recent }}
+          BACKFILL_FROM: ${{ inputs.backfill_from }}
+          BACKFILL_TO: ${{ inputs.backfill_to }}
+          BACKFILL_LIMIT: ${{ inputs.backfill_limit }}
         run: python pipeline.py
 
       # 커밋 전에 원본과 새 페이지를 검사한다. 봇 커밋은 GITHUB_TOKEN 으로 올라가 CI 를 실행시키지 않기 때문이다.

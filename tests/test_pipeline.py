@@ -199,3 +199,57 @@ def test_fetch_live_exits_cleanly_when_site_is_unreachable(daily_dir, monkeypatc
     with pytest.raises(SystemExit, match="3번 접속하지 못했습니다"):
         pipeline.fetch_live([FROZEN_TODAY])
     assert not daily_dir.exists()
+
+
+@pytest.mark.parametrize("date, months, expected", [
+    (datetime.date(2026, 11, 4), -12, datetime.date(2025, 11, 4)),
+    (datetime.date(2026, 5, 31), -3, datetime.date(2026, 2, 28)),
+    (datetime.date(2026, 1, 15), -3, datetime.date(2025, 10, 15)),
+])
+def test_add_months_clamps_to_month_end(date, months, expected):
+    assert pipeline.add_months(date, months) == expected
+
+
+def test_reference_spans_cover_recent_months_and_last_year_month():
+    recent, last_year = pipeline.reference_spans(datetime.date(2026, 11, 4))
+    assert recent == (datetime.date(2026, 8, 4), datetime.date(2026, 11, 4))
+    assert last_year[0] <= datetime.date(2025, 10, 5) and last_year[1] == datetime.date(2025, 11, 30)
+
+
+def test_summarize_weights_average_by_qty_and_splits_states():
+    rows = [
+        ["2026-11-03", "방어", "", "활", "포항", "1미", "kg", 3.0, 1.0, 30000.0, 20000.0, 25000.0],
+        ["2026-11-03", "방어", "", "활", "통영", "2미", "kg", 1.0, 1.0, 22000.0, 15000.0, 17000.0],
+        ["2026-11-03", "방어", "", "활", "통영", "2미", "S/P", 2.0, 10.0, 99000.0, 99000.0, 99000.0],
+        ["2026-11-03", "방어", "", "선", "포항", "1미", "kg", 1.0, 1.0, 9000.0, 8000.0, 8500.0],
+    ]
+    ref = pipeline.summarize(rows)
+    assert ref["dates"] == ["2026-11-03"]
+    # 평균가 (25000x3 + 17000x1)/4, 고가·저가는 kg 거래만, 경락량은 모든 거래의 수량 x 중량
+    assert ref["series"]["방어|활"] == [[0, 23000, 30000, 15000, 4.0, 24]]
+    assert ref["series"]["방어|선"] == [[0, 8500, 9000, 8000, 1.0, 1]]
+
+
+def test_collect_range_skips_saved_and_no_trade_dates_and_respects_limit(daily_dir, monkeypatch, tmp_path):
+    no_trade = tmp_path / "no_trade.txt"
+    no_trade.write_text("2025-11-02\n", encoding="utf-8")
+    monkeypatch.setattr(pipeline, "NO_TRADE_FILE", no_trade)
+    monkeypatch.setattr(pipeline, "BACKFILL_FROM", "2025-11-01")
+    monkeypatch.setattr(pipeline, "BACKFILL_TO", "2025-11-06")
+    monkeypatch.setattr(pipeline, "BACKFILL_LIMIT", 2)
+    write_daily(daily_dir, datetime.date(2025, 11, 1))
+    calls = []
+    monkeypatch.setattr(pipeline, "fetch_live", lambda dates, pause=1: calls.append((dates, pause)))
+    pipeline.collect_range()
+    assert calls == [([datetime.date(2025, 11, 3), datetime.date(2025, 11, 4)], pipeline.BACKFILL_PAUSE)]
+
+
+def test_empty_past_day_is_recorded_as_no_trade_but_recent_day_is_not(daily_dir, monkeypatch, tmp_path):
+    no_trade = tmp_path / "no_trade.txt"
+    monkeypatch.setattr(pipeline, "NO_TRADE_FILE", no_trade)
+    monkeypatch.setattr(pipeline.noryangjin, "new_session", lambda: None)
+    monkeypatch.setattr(pipeline.noryangjin, "fetch_day", lambda session, species, date: pd.DataFrame())
+    monkeypatch.setattr(pipeline.time, "sleep", lambda s: None)
+    old = FROZEN_TODAY - datetime.timedelta(days=5)
+    pipeline.fetch_live([old, FROZEN_TODAY])
+    assert pipeline.no_trade_dates() == {old.isoformat()}

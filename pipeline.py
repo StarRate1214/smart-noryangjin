@@ -3,21 +3,26 @@
 실행:
     python pipeline.py                       # 공식 홈페이지에서 오늘·어제 시세 수집(기본)
     BACKFILL_DAYS=30 python pipeline.py      # 원본이 없는 지난 30일도 채움
+    BACKFILL_FROM=2025-10-01 BACKFILL_TO=2026-08-31 python pipeline.py   # 지정 기간의 빠진 날짜를 채움
     DATA_SOURCE=sample python pipeline.py    # 사이트 접속 없이 샘플 데이터로 화면만 확인
 
 동작 순서:
     1. 날짜마다 어종명을 비워 요청해 그날 거래된 모든 어종의 경락 표를 받아
        data/daily/YYYY-MM-DD.csv 로 저장한다(하루 1회 요청)
-    2. 최근 WINDOW_DAYS 일 원본 행을 index.html 에 JSON 으로 넣는다
+    2. 최근 WINDOW_DAYS 일 원본 행을 index.html 에 JSON 으로 넣는다. 작년 같은 달과 직전 3개월 비교용으로는
+       그 기간의 어종·상태별 일별 요약(평균가·고가·저가·수량·경락량)만 넣는다
     3. 어종 선택·검색, 상태·산지·규격 필터(포함/제외), 즐겨찾기, 날짜별 고가·평균가·저가와
        가성비 구간 계산은 페이지의 스크립트(templates/dashboard.html)가 브라우저에서 처리한다
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
     BACKFILL_DAYS  원본이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
     REFRESH_RECENT 0 이면 오늘·어제도 원본이 있으면 다시 받지 않음 (기본: 1)
+    BACKFILL_FROM, BACKFILL_TO  이 기간(YYYY-MM-DD)의 빠진 날짜를 오래된 날부터 채움
+    BACKFILL_LIMIT 한 번 실행에서 BACKFILL_FROM~TO 로 받을 최대 날짜 수 (기본: 60)
     DATA_SOURCE    live(기본) 또는 sample
 """
 
+import calendar
 import datetime
 import json
 import os
@@ -31,6 +36,8 @@ import noryangjin
 
 ROOT = Path(__file__).resolve().parent
 DAILY_DIR = ROOT / "data" / "daily"
+# 거래가 없었던 지난 날짜. 기간 백필이 휴장일을 매번 다시 요청하지 않게 기록한다.
+NO_TRADE_FILE = ROOT / "data" / "no_trade.txt"
 DEBUG_DIR = ROOT / "debug"
 TEMPLATE_FILE = ROOT / "templates" / "dashboard.html"
 OUTPUT_FILE = ROOT / "index.html"
@@ -65,6 +72,14 @@ EXTRA_PRIORITY = ["왕게"]
 BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS") or 0)
 # 0 이면 오늘·어제도 원본이 이미 있을 때 다시 받지 않는다. 하루 중 재시도 실행이 같은 요청을 되풀이하지 않게 한다.
 REFRESH_RECENT = os.environ.get("REFRESH_RECENT", "1") != "0"
+BACKFILL_FROM = os.environ.get("BACKFILL_FROM") or ""
+BACKFILL_TO = os.environ.get("BACKFILL_TO") or ""
+BACKFILL_LIMIT = int(os.environ.get("BACKFILL_LIMIT") or 60)
+# 기간 백필은 요청이 몰리므로 평소(1초)보다 길게 쉰다. 사이트 방화벽이 비정상 접근으로 보지 않게 한다.
+BACKFILL_PAUSE = 3
+
+# 가격 비교 기준: 최근 거래일과 같은 달의 작년 거래, 그리고 최근 거래일 직전 3개월 거래
+REF_MONTHS = 3
 
 WINDOW_DAYS = 30
 # 가성비 구간: 평균가(수량 가중) + (고가 - 평균가) x 60~80%.
@@ -101,7 +116,22 @@ def priority_species():
 # ---------------------------------------------------------------------------
 
 
-def fetch_live(dates):
+def no_trade_dates():
+    if not NO_TRADE_FILE.exists():
+        return set()
+    return {line.strip() for line in NO_TRADE_FILE.read_text(encoding="utf-8").splitlines() if line.strip()}
+
+
+def mark_no_trade(date):
+    """이틀 넘게 지난 날짜만 휴장으로 기록한다. 오늘·어제는 경락분이 늦게 올라올 수 있다."""
+    if date >= today_kst() - datetime.timedelta(days=1):
+        return
+    days = no_trade_dates() | {date.isoformat()}
+    NO_TRADE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    NO_TRADE_FILE.write_text("".join(f"{d}\n" for d in sorted(days)), encoding="utf-8")
+
+
+def fetch_live(dates, pause=1):
     """날짜별로 전체 어종 경락 표를 받아 data/daily/YYYY-MM-DD.csv 로 저장한다."""
     if not dates:
         print("받을 날짜가 없습니다(원본이 모두 있음)")
@@ -112,7 +142,7 @@ def fetch_live(dates):
         raise SystemExit(str(exc))
     for i, date in enumerate(dates):
         if i:
-            time.sleep(1)  # 서버 부하를 줄이기 위한 간격
+            time.sleep(pause)  # 서버 부하를 줄이기 위한 간격
         try:
             table = noryangjin.fetch_day(session, "", date)
         except noryangjin.FetchError as exc:
@@ -123,6 +153,7 @@ def fetch_live(dates):
 
         if table.empty:
             print(f"{date}: 경락 기록 없음(휴장일 등)")
+            mark_no_trade(date)
             continue
         DAILY_DIR.mkdir(parents=True, exist_ok=True)
         table.to_csv(DAILY_DIR / f"{date}.csv", index=False)
@@ -134,9 +165,20 @@ def collect_live():
     # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 다시 받고(REFRESH_RECENT),
     # 그보다 앞선 날짜는 원본이 없는 것만 받는다.
     dates = recent_dates(max(BACKFILL_DAYS, 2))
-    have = {p.stem for p in DAILY_DIR.glob("*.csv")}
+    have = {p.stem for p in DAILY_DIR.glob("*.csv")} | no_trade_dates()
     recent = dates[-2:] if REFRESH_RECENT else [d for d in dates[-2:] if d.isoformat() not in have]
     fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + recent)
+
+
+def collect_range():
+    """BACKFILL_FROM~TO 에서 원본도 휴장 기록도 없는 날짜를 오래된 날부터 BACKFILL_LIMIT 개 받는다."""
+    start = datetime.date.fromisoformat(BACKFILL_FROM)
+    end = datetime.date.fromisoformat(BACKFILL_TO) if BACKFILL_TO else today_kst()
+    have = {p.stem for p in DAILY_DIR.glob("*.csv")} | no_trade_dates()
+    days = (start + datetime.timedelta(days=i) for i in range((end - start).days + 1))
+    missing = [d for d in days if d.isoformat() not in have]
+    print(f"기간 백필 {start}~{end}: 빠진 날짜 {len(missing)}일 중 {min(len(missing), BACKFILL_LIMIT)}일을 받습니다")
+    fetch_live(missing[:BACKFILL_LIMIT], pause=BACKFILL_PAUSE)
 
 
 # ---------------------------------------------------------------------------
@@ -209,13 +251,74 @@ def species_order(rows):
     return first + rest
 
 
-def sample_rows():
-    """사이트 접속 없이 화면을 확인하기 위한 결정적 샘플 행."""
+def add_months(date, months):
+    """달을 더하고, 그 달에 없는 날(31일 등)은 말일로 맞춘다."""
+    year, month = divmod(date.month - 1 + months, 12)
+    year, month = date.year + year, month + 1
+    return datetime.date(year, month, min(date.day, calendar.monthrange(year, month)[1]))
+
+
+def reference_spans(latest):
+    """비교 기준 계산에 필요한 날짜 범위. 직전 3개월과, 작년 같은 달 전체에 그 앞쪽 WINDOW_DAYS 일을 더한 범위다.
+    앞쪽을 더하는 까닭은 차트의 '작년 같은 시기' 선이 표시 기간(최근 WINDOW_DAYS 일)의 1년 전 날짜를 쓰기 때문이다."""
+    year_ago = add_months(latest, -12)
+    month_start = year_ago.replace(day=1)
+    month_end = year_ago.replace(day=calendar.monthrange(year_ago.year, year_ago.month)[1])
+    return [
+        (add_months(latest, -REF_MONTHS), latest),
+        (min(month_start, year_ago - datetime.timedelta(days=WINDOW_DAYS)), month_end),
+    ]
+
+
+def in_spans(date, spans):
+    return any(a.isoformat() <= date <= b.isoformat() for a, b in spans)
+
+
+def reference_rows(latest):
+    rows = []
+    spans = reference_spans(latest)
+    for path in sorted(DAILY_DIR.glob("*.csv")):
+        if in_spans(path.stem, spans):
+            rows += table_rows(path.stem, pd.read_csv(path))
+    return rows
+
+
+def summarize(rows):
+    """원본 행을 '어종|상태'별 일별 요약으로 줄인다. 페이지의 시세 계산과 같은 기준이다:
+    가격은 kg 단위 거래만, 평균가는 수량 가중, 경락량은 모든 거래의 수량 x 중량.
+    결과: {"dates": [날짜...], "series": {"방어|활": [[날짜 번호, 평균가, 고가, 저가, 가중 수량, 경락량], ...]}}"""
+    days = {}
+    for date, species, _, state, _, _, pack, qty, weight, high, low, avg in rows:
+        d = days.setdefault((f"{species}|{state}", date), {"pq": 0.0, "q": 0.0, "high": None, "low": None, "vol": 0.0})
+        d["vol"] += (qty or 0) * (weight or 1)
+        if (pack or "").lower() != "kg" or not high or high <= 0:
+            continue
+        d["high"] = high if d["high"] is None else max(d["high"], high)
+        if low and low > 0:
+            d["low"] = low if d["low"] is None else min(d["low"], low)
+        if avg and avg > 0:
+            q = qty if qty and qty > 0 else 1
+            d["pq"] += avg * q
+            d["q"] += q
+    dates = sorted({date for _, date in days})
+    index = {date: i for i, date in enumerate(dates)}
+    series = {}
+    for (key, date), d in sorted(days.items()):
+        avg = round(d["pq"] / d["q"]) if d["q"] else None
+        series.setdefault(key, []).append(
+            [index[date], avg, d["high"] and round(d["high"]), d["low"] and round(d["low"]), round(d["q"], 1),
+             round(d["vol"])]
+        )
+    return {"dates": dates, "series": series}
+
+
+def sample_rows(dates=None):
+    """사이트 접속 없이 화면을 확인하기 위한 결정적 샘플 행. dates 가 없으면 최근 WINDOW_DAYS 일."""
     origins = ["일본", "포항", "통영", "제주도", "완도"]
     sizes = ["1미", "2미", "3미"]
     rows = []
     for species_index, species in enumerate(priority_species()[:8]):
-        for date in recent_dates(WINDOW_DAYS):
+        for date in dates or recent_dates(WINDOW_DAYS):
             if date.weekday() == 6:
                 continue  # 일요일 휴장
             rng = random.Random(date.toordinal() * 31 + species_index)
@@ -235,7 +338,14 @@ def sample_rows():
 # ---------------------------------------------------------------------------
 
 
-def render_page(rows, source):
+def sample_reference(rows):
+    latest = datetime.date.fromisoformat(max(r[0] for r in rows))
+    spans = reference_spans(latest)
+    dates = sorted({a + datetime.timedelta(days=i) for a, b in spans for i in range((b - a).days + 1)})
+    return summarize(sample_rows(dates))
+
+
+def render_page(rows, source, reference=None):
     payload = {
         "fields": ROW_FIELDS,
         "rows": rows,
@@ -246,6 +356,8 @@ def render_page(rows, source):
         "lower": LOWER_RATIO,
         "upper": UPPER_RATIO,
         "sample": source == "sample",
+        "ref": reference or {"dates": [], "series": {}},
+        "refMonths": REF_MONTHS,
         "updated": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
     }
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
@@ -258,14 +370,16 @@ def main():
         raise SystemExit(f"알 수 없는 DATA_SOURCE: {source} (가능: sample, live)")
 
     if source == "live":
-        collect_live()
+        collect_range() if BACKFILL_FROM else collect_live()
         rows = live_rows()
     else:
         rows = sample_rows()
     if not rows:
         raise SystemExit("표시할 시세가 없어 대시보드를 만들 수 없습니다.")
 
-    OUTPUT_FILE.write_text(render_page(rows, source), encoding="utf-8")
+    latest = datetime.date.fromisoformat(max(r[0] for r in rows))
+    reference = summarize(reference_rows(latest)) if source == "live" else sample_reference(rows)
+    OUTPUT_FILE.write_text(render_page(rows, source, reference), encoding="utf-8")
     print(f"완료: {OUTPUT_FILE.relative_to(ROOT)} 생성 ({len(rows)}행, {len({r[1] for r in rows})}종, 소스={source})")
 
 

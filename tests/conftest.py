@@ -37,6 +37,8 @@ def daily_dir(tmp_path, monkeypatch):
     """pipeline.DAILY_DIR 를 임시 디렉터리로 바꾼다."""
     path = tmp_path / "daily"
     monkeypatch.setattr(pipeline, "DAILY_DIR", path)
+    # 휴장 기록도 실제 파일 대신 빈 임시 파일을 쓴다
+    monkeypatch.setattr(pipeline, "NO_TRADE_FILE", tmp_path / "no_trade.txt")
     return path
 
 

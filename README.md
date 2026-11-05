@@ -29,7 +29,7 @@
 | `templates/dashboard.html` | 페이지 틀. 필터·즐겨찾기·고가·가성비 구간 계산을 브라우저에서 처리 |
 | `data/daily/YYYY-MM-DD.csv` | 그날 거래된 모든 어종의 원본 경락 표 |
 | `index.html` | GitHub Pages가 서빙하는 대시보드 |
-| `.github/workflows/update.yml` | 매일 06:45 KST 자동 수집(빠진 날은 10:45·14:45·18:45에 다시), 실패하면 새 실행기에서 재시도 |
+| `.github/workflows/update.yml` | 매일 06:45 KST 자동 수집(빠졌거나 경매 집계 전에 받은 날은 07:45~10:45 매시와 14:45·18:45에 다시), 실패하면 새 실행기에서 재시도 |
 | `.github/workflows/collect.yml` | 수집 한 번: 수집, 데이터 검사, 커밋 |
 | `.github/workflows/ci.yml` | PR·`main` 푸시마다 린트, 단위·데이터 테스트, 브라우저 스모크 테스트 |
 | `tests/`, `docs/CI_PLAN.md` | 테스트와 CI 세부 계획 |

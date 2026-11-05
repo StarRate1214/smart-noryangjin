@@ -4,9 +4,10 @@ on:
   schedule:
     # 매일 06:45 KST (= 21:45 UTC 전날). 정각에는 예약 실행이 몰려 GitHub 가 몇 시간씩 늦추므로 45분에 둔다.
     - cron: "45 21 * * *"
-    # 10:45, 14:45, 18:45 KST 에는 원본이 빠진 날짜만 받는다. 아침 수집이 실패한 날을 채우는 용도라
-    # 원본이 모두 있으면 사이트에 요청하지 않는다.
-    - cron: "45 1,5,9 * * *"
+    # 07:45~10:45 KST 매시와 14:45, 18:45 KST 에는 원본이 없거나 경매 집계 전(06시 전)에 받은 날짜만 받는다.
+    # GitHub 는 예약 실행을 몇 시간씩 늦추거나 건너뛰기도 해(2026-11-05 06:45 실행이 오지 않았고, 전날 18:45 실행이
+    # 02:30 에 돌아 반쪽 원본을 받았다) 아침에 여러 번 둔다. 받을 것이 없으면 사이트에 요청하지 않는다.
+    - cron: "45 22,23,0,1,5,9 * * *"
   workflow_dispatch:
     inputs:
       source:
@@ -36,7 +37,7 @@ concurrency:
 
 # 2026-10-21 에는 일부 실행기 IP 만 연결 단계에서 막혔다. 같은 실행기에서 다시 시도해도 소용없으므로
 # 실패하면 새 실행기에서 최대 두 번 더 돈다. 아침 수집과 수동 실행은 오늘·어제를 다시 받고(refresh_recent=1),
-# 낮 재시도는 빠진 날짜만 받는다. 앞선 시도의 접속 실패는 job 을 실패시키지 않고 collected=false 로만 알리므로,
+# 낮 재시도는 빠졌거나 경매 집계 전에 받은 날짜만 받는다. 앞선 시도의 접속 실패는 job 을 실패시키지 않고 collected=false 로만 알리므로,
 # 다음 시도는 그 값을 보고 돈다. 데이터 검사나 커밋이 실패하면 job 이 실패하고 재시도하지 않는다(IP 문제가 아니다).
 jobs:
   attempt-1:
@@ -46,7 +47,7 @@ jobs:
       attempt: 1
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
-      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      refresh_recent: ${{ github.event.schedule == '45 22,23,0,1,5,9 * * *' && '0' || '1' }}
       backfill_from: ${{ inputs.backfill_from || '' }}
       backfill_to: ${{ inputs.backfill_to || '' }}
       backfill_limit: ${{ inputs.backfill_limit || '60' }}
@@ -60,7 +61,7 @@ jobs:
       attempt: 2
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
-      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      refresh_recent: ${{ github.event.schedule == '45 22,23,0,1,5,9 * * *' && '0' || '1' }}
       backfill_from: ${{ inputs.backfill_from || '' }}
       backfill_to: ${{ inputs.backfill_to || '' }}
       backfill_limit: ${{ inputs.backfill_limit || '60' }}
@@ -75,7 +76,7 @@ jobs:
       final: true
       source: ${{ inputs.source || vars.DATA_SOURCE || 'live' }}
       backfill_days: ${{ inputs.backfill_days || vars.BACKFILL_DAYS || '7' }}
-      refresh_recent: ${{ github.event.schedule == '45 1,5,9 * * *' && '0' || '1' }}
+      refresh_recent: ${{ github.event.schedule == '45 22,23,0,1,5,9 * * *' && '0' || '1' }}
       backfill_from: ${{ inputs.backfill_from || '' }}
       backfill_to: ${{ inputs.backfill_to || '' }}
       backfill_limit: ${{ inputs.backfill_limit || '60' }}

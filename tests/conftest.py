@@ -39,6 +39,7 @@ def daily_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "DAILY_DIR", path)
     # 휴장 기록도 실제 파일 대신 빈 임시 파일을 쓴다
     monkeypatch.setattr(pipeline, "NO_TRADE_FILE", tmp_path / "no_trade.txt")
+    monkeypatch.setattr(pipeline, "FETCH_LOG", tmp_path / "fetched.json")
     return path
 
 

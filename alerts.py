@@ -514,6 +514,10 @@ def run(send_now=False):
     if latest < (pipeline.today_kst() - datetime.timedelta(days=1)).isoformat():
         print(f"최근 거래일({latest})이 오늘·어제가 아니라 보내지 않습니다")
         return alerts
+    # 경매 집계 전에 받은 반쪽 원본으로는 입하량이 적게 잡혀 엉뚱한 판정이 나오므로 보내지 않는다
+    if pipeline.is_partial(datetime.date.fromisoformat(latest)):
+        print(f"{latest} 원본이 경매 집계 전({pipeline.COMPLETE_HOUR}시 전)에 받은 것이라 보내지 않습니다")
+        return alerts
     print(f"새 알림 {send(alerts, topic, page_url())}건을 보냈습니다")
     return alerts
 

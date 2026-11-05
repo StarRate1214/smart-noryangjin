@@ -16,7 +16,7 @@
 
 환경 변수(GitHub Actions 에서는 저장소 Variables 로 지정):
     BACKFILL_DAYS  원본이 없는 과거 날짜를 며칠까지 채울지 (기본: 0)
-    REFRESH_RECENT 0 이면 오늘·어제도 원본이 있으면 다시 받지 않음 (기본: 1)
+    REFRESH_RECENT 1 이면 오늘·어제를 늘 다시 받음(기본). 0 이면 원본이 없거나 경매 집계 전에 받은 것만 다시 받음
     BACKFILL_FROM, BACKFILL_TO  이 기간(YYYY-MM-DD)의 빠진 날짜를 오래된 날부터 채움
     BACKFILL_LIMIT 한 번 실행에서 BACKFILL_FROM~TO 로 받을 최대 날짜 수 (기본: 60)
     DATA_SOURCE    live(기본) 또는 sample
@@ -38,6 +38,11 @@ ROOT = Path(__file__).resolve().parent
 DAILY_DIR = ROOT / "data" / "daily"
 # 거래가 없었던 지난 날짜. 기간 백필이 휴장일을 매번 다시 요청하지 않게 기록한다.
 NO_TRADE_FILE = ROOT / "data" / "no_trade.txt"
+# 날짜별로 원본을 언제 받았는지(KST). 경매 집계가 끝나기 전에 받은 원본을 알아보고 다시 받는 데 쓴다.
+FETCH_LOG = ROOT / "data" / "fetched.json"
+# 그날 경매 결과가 다 올라왔다고 보는 시각(KST). 2026-11-05 02:30 에 받은 원본은 300행으로 하루치(540~570행)의
+# 절반이었다. 이 시각 전에 받은 그날 원본은 '집계 전'으로 보고 다음 실행이 다시 받는다.
+COMPLETE_HOUR = 6
 DEBUG_DIR = ROOT / "debug"
 TEMPLATE_FILE = ROOT / "templates" / "dashboard.html"
 OUTPUT_FILE = ROOT / "index.html"
@@ -133,6 +138,30 @@ def mark_no_trade(date):
     NO_TRADE_FILE.write_text("".join(f"{d}\n" for d in sorted(days)), encoding="utf-8")
 
 
+def fetch_log():
+    if not FETCH_LOG.exists():
+        return {}
+    return json.loads(FETCH_LOG.read_text(encoding="utf-8"))
+
+
+def record_fetch(date):
+    log = fetch_log()
+    log[date.isoformat()] = datetime.datetime.now(KST).strftime("%Y-%m-%dT%H:%M")
+    keep = (today_kst() - datetime.timedelta(days=WINDOW_DAYS)).isoformat()
+    log = {d: t for d, t in sorted(log.items()) if d >= keep}
+    FETCH_LOG.parent.mkdir(parents=True, exist_ok=True)
+    FETCH_LOG.write_text(json.dumps(log, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+
+def is_partial(date):
+    """그날 경매 집계가 끝나기 전(그날 COMPLETE_HOUR 시 전)에 받은 원본인지.
+    받은 시각 기록이 없는 지난 원본은 완전하다고 보고, 기록 없는 오늘 원본은 다시 받는다."""
+    fetched = fetch_log().get(date.isoformat())
+    if fetched is None:
+        return date >= today_kst() and (DAILY_DIR / f"{date}.csv").exists()
+    return fetched < f"{date.isoformat()}T{COMPLETE_HOUR:02d}:00"
+
+
 def fetch_live(dates, pause=1):
     """날짜별로 전체 어종 경락 표를 받아 data/daily/YYYY-MM-DD.csv 로 저장한다."""
     if not dates:
@@ -159,16 +188,17 @@ def fetch_live(dates, pause=1):
             continue
         DAILY_DIR.mkdir(parents=True, exist_ok=True)
         table.to_csv(DAILY_DIR / f"{date}.csv", index=False)
+        record_fetch(date)
         names = {noryangjin.split_name(v)[1] for v in table.get("어종", [])}
         print(f"{date}: {len(table)}행, {len(names)}종")
 
 
 def collect_live():
-    # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 다시 받고(REFRESH_RECENT),
-    # 그보다 앞선 날짜는 원본이 없는 것만 받는다.
+    # 오늘과 어제는 늦게 올라오는 경락분이 있을 수 있어 다시 받는다(REFRESH_RECENT). 재시도 실행(REFRESH_RECENT=0)은
+    # 원본이 없거나 경매 집계 전에 받은 것만 다시 받는다. 그보다 앞선 날짜는 원본이 없는 것만 받는다.
     dates = recent_dates(max(BACKFILL_DAYS, 2))
     have = {p.stem for p in DAILY_DIR.glob("*.csv")} | no_trade_dates()
-    recent = dates[-2:] if REFRESH_RECENT else [d for d in dates[-2:] if d.isoformat() not in have]
+    recent = dates[-2:] if REFRESH_RECENT else [d for d in dates[-2:] if d.isoformat() not in have or is_partial(d)]
     fetch_live([d for d in dates[:-2] if d.isoformat() not in have] + recent)
 
 

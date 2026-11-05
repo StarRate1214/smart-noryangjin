@@ -339,3 +339,14 @@ def test_validate_checks_match_and_conditions():
         "규칙 1 조건 1: 배수(ratio)는 1보다 커야 합니다",
         "규칙 2: 조건은 1~5개입니다",
     ]
+
+
+def test_run_does_not_send_for_data_fetched_before_the_auction_closed(daily_dir, monkeypatch, tmp_path):
+    daily_dir.mkdir()
+    header = "어종,산지,규격,포장,수량,중량,낙찰고가,낙찰저가,평균가\n"
+    (daily_dir / f"{day(0)}.csv").write_text(header, encoding="utf-8")
+    pipeline.FETCH_LOG.write_text(json.dumps({day(0): f"{day(0)}T02:30"}), encoding="utf-8")
+    monkeypatch.setenv("NTFY_TOPIC", "topic")
+    monkeypatch.setattr(alerts, "CONFIG_FILE", tmp_path / "missing.json")
+    monkeypatch.setattr(alerts, "send", lambda *a: pytest.fail("집계 전 원본으로 알림을 보냈습니다"))
+    alerts.run(send_now=True)

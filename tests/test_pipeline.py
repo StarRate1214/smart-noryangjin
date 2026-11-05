@@ -128,6 +128,8 @@ def test_collect_live_without_refresh_skips_recent_dates_already_saved(daily_dir
     day = lambda n: FROZEN_TODAY - datetime.timedelta(days=n)  # noqa: E731
     for n in (2, 0):
         write_daily(daily_dir, day(n))
+    # 오늘 원본은 경매 집계 뒤(06시 이후)에 받은 것
+    pipeline.FETCH_LOG.write_text(json.dumps({day(0).isoformat(): f"{day(0)}T07:00"}), encoding="utf-8")
     calls = []
     monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
 
@@ -255,3 +257,41 @@ def test_empty_past_day_is_recorded_as_no_trade_but_recent_day_is_not(daily_dir,
     old = FROZEN_TODAY - datetime.timedelta(days=5)
     pipeline.fetch_live([old, FROZEN_TODAY])
     assert pipeline.no_trade_dates() == {old.isoformat()}
+
+
+def test_retry_run_refetches_today_saved_before_the_auction_closed(daily_dir, monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "FETCH_LOG", tmp_path / "fetched.json")
+    monkeypatch.setattr(pipeline, "BACKFILL_DAYS", 0)
+    monkeypatch.setattr(pipeline, "REFRESH_RECENT", False)
+    yesterday = FROZEN_TODAY - datetime.timedelta(days=1)
+    for d in (yesterday, FROZEN_TODAY):
+        write_daily(daily_dir, d)
+    log = {yesterday.isoformat(): f"{yesterday}T07:10", FROZEN_TODAY.isoformat(): f"{FROZEN_TODAY}T02:30"}
+    pipeline.FETCH_LOG.write_text(json.dumps(log), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
+    pipeline.collect_live()
+    assert calls == [FROZEN_TODAY]  # 02:30 에 받은 오늘 원본만 다시 받는다
+
+    log[FROZEN_TODAY.isoformat()] = f"{FROZEN_TODAY}T06:50"
+    pipeline.FETCH_LOG.write_text(json.dumps(log), encoding="utf-8")
+    calls.clear()
+    pipeline.collect_live()
+    assert calls == []
+
+
+def test_is_partial_without_fetch_record(daily_dir, monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "FETCH_LOG", tmp_path / "fetched.json")
+    old = FROZEN_TODAY - datetime.timedelta(days=3)
+    write_daily(daily_dir, old)
+    write_daily(daily_dir, FROZEN_TODAY)
+    assert not pipeline.is_partial(old)        # 기록 없는 지난 원본은 완전하다고 본다
+    assert pipeline.is_partial(FROZEN_TODAY)   # 기록 없는 오늘 원본은 다시 받는다
+
+
+def test_fetch_records_time(daily_dir, monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "FETCH_LOG", tmp_path / "fetched.json")
+    monkeypatch.setattr(pipeline.noryangjin, "new_session", lambda: None)
+    monkeypatch.setattr(pipeline.noryangjin, "fetch_day", lambda session, species, date: BANGEO)
+    pipeline.fetch_live([FROZEN_TODAY])
+    assert FROZEN_TODAY.isoformat() in pipeline.fetch_log()

@@ -7,5 +7,17 @@
   "rmw1z4nt0|수꽃게|활|avg",
   "rmw1z4nt0|잡어|활|avg",
   "rmw1z4nt0|흑점줄전갱이|활|avg"
+ ],
+ "2026-11-05": [
+  "auto:any|넙치#자연산|활|volume",
+  "auto:any|농어#양식|활|avg",
+  "auto:any|농어#자연산|활|volume",
+  "auto:any|도다리|활|avg",
+  "auto:any|민어|활|volume",
+  "auto:any|자바리|활|volume",
+  "auto:any|점성어|활|volume",
+  "auto:any|줄돔#국산|활|avg",
+  "auto:any|참돔#자연산|활|volume",
+  "auto:any|흑점줄전갱이|활|avg"
  ]
 }

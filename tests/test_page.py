@@ -607,3 +607,35 @@ def test_auto_watch_species_switches(page):
     assert json.loads(page.inner_text("#jsonPreview"))["auto"]["extra"] == ["방어"]
     page.locator('#autoBox .chip.extra button[aria-label="방어 빼기"]').click()
     assert json.loads(page.inner_text("#jsonPreview"))["auto"]["extra"] == []
+
+
+def test_alert_link_in_address_opens_species_chart(page):
+    url = page.url.split("#")[0]
+    page.goto(url + "#price?species=%EB%84%99%EC%B9%98&state=%ED%99%9C&kind=%EC%96%91%EC%8B%9D")  # 넙치 활 양식
+    page.wait_for_selector("#weekTable tbody tr", state="attached")
+    assert page.is_visible("#view-price")
+    assert page.locator("#species .chip[aria-pressed=true]").first.get_attribute("data-species") == "넙치"
+    assert "#price" not in page.url  # 새로 고침해도 다시 열리지 않게 주소를 지운다
+    pressed = page.locator('#origins .chip[data-state="in"]').all_inner_texts()
+    assert pressed and all(t.split("\n")[0] in ("제주도",) for t in pressed)  # 양식 넙치 = 제주도
+
+
+def test_fired_alert_item_opens_species_chart(browser, site, tmp_path):
+    fired = {"date": "2026-09-29", "label": "(활)넙치(양식)", "metric": "volume", "up": False,
+             "id": "auto:both", "key": "넙치#양식|활", "text": "(활)넙치(양식) 입하량 ..."}
+    alert_info = {"config": json.loads(json.dumps(alerts.DEFAULT_CONFIG)), "error": "", "date": "2026-09-29",
+                  "watch": [], "fired": [fired]}
+    rows = build_rows(site["kind"])
+    html = pipeline.render_page(rows, site["kind"], build_reference(site["kind"], rows), alert_info)
+    path = tmp_path / "fired.html"
+    path.write_text(html, encoding="utf-8")
+    context = browser.new_context(viewport={"width": 1100, "height": 900}, locale="ko-KR")
+    js = PLOTLY_JS.read_bytes()
+    context.route("https://cdn.plot.ly/**", lambda route: route.fulfill(body=js, content_type="application/javascript"))
+    pg = context.new_page()
+    pg.goto(path.as_uri())
+    pg.click("#tab-alert")
+    pg.locator("#fired li.link").first.click()
+    assert pg.is_visible("#view-price")
+    assert pg.locator("#species .chip[aria-pressed=true]").first.get_attribute("data-species") == "넙치"
+    context.close()

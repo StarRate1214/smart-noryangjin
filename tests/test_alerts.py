@@ -350,3 +350,19 @@ def test_run_does_not_send_for_data_fetched_before_the_auction_closed(daily_dir,
     monkeypatch.setattr(alerts, "CONFIG_FILE", tmp_path / "missing.json")
     monkeypatch.setattr(alerts, "send", lambda *a: pytest.fail("집계 전 원본으로 알림을 보냈습니다"))
     alerts.run(send_now=True)
+
+
+def test_species_link_opens_the_price_chart():
+    page = "https://starrate1214.github.io/smart-noryangjin/"
+    assert alerts.species_link(page, "농어#자연산|활") == (
+        page + "#price?species=%EB%86%8D%EC%96%B4&state=%ED%99%9C&kind=%EC%9E%90%EC%97%B0%EC%82%B0")
+    assert alerts.species_link(page, "방어|").endswith("#price?species=%EB%B0%A9%EC%96%B4&state=&kind=")
+    assert alerts.species_link(None, "방어|활") is None
+
+
+def test_send_links_each_alert_to_its_species(tmp_path, monkeypatch):
+    monkeypatch.setattr(alerts, "SENT_FILE", tmp_path / "sent.json")
+    clicks = []
+    monkeypatch.setattr(alerts, "publish", lambda topic, title, message, tags, click: clicks.append(click))
+    alerts.send([fired_alert(key="넙치#양식|활")], "topic", "https://x.test/")
+    assert clicks == ["https://x.test/#price?species=%EB%84%99%EC%B9%98&state=%ED%99%9C&kind=%EC%96%91%EC%8B%9D"]

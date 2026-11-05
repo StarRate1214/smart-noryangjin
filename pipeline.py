@@ -388,7 +388,7 @@ def alert_info(source):
         error = ""
     except SystemExit as exc:
         config, fired, error = json.loads(json.dumps(alerts.DEFAULT_CONFIG)), [], str(exc)
-    keep = ("date", "label", "metric", "text", "up", "id")
+    keep = ("date", "label", "metric", "text", "up", "id", "key")
     watch = [[alerts.watch_id(s, k), s, k] for s, k in alerts.WATCH_LIST]
     return {"config": config, "fired": [{k: a[k] for k in keep} for a in fired], "error": error,
             "date": fired[0]["date"] if fired else alerts.latest_date(), "watch": watch}

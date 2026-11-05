@@ -25,6 +25,7 @@ import math
 import os
 import statistics
 import sys
+import urllib.parse
 from pathlib import Path
 
 import pandas as pd
@@ -461,6 +462,16 @@ def publish(topic, title, message, tags, click):
     requests.post(server.rstrip("/") + "/", json=body, timeout=20).raise_for_status()
 
 
+def species_link(page, key):
+    """알림을 눌렀을 때 그 어종의 시세 차트를 여는 주소. 예: ...#price?species=농어&state=활&kind=자연산"""
+    if not page:
+        return None
+    target, state = key.split("|")
+    species, _, kind = target.partition("#")
+    query = urllib.parse.urlencode({"species": species, "state": state, "kind": kind}, quote_via=urllib.parse.quote)
+    return f"{page.split('#')[0]}#price?{query}"
+
+
 def send(alerts, topic, click=None):
     """보낸 알림 수. 같은 날 같은 알림은 다시 보내지 않는다."""
     sent = load_sent()
@@ -468,7 +479,8 @@ def send(alerts, topic, click=None):
     for a in fresh[:MAX_MESSAGES]:
         tags = ["chart_with_upwards_trend" if a["up"] else "chart_with_downwards_trend", "fish"]
         what = METRICS[a["metric"]] if len(a["hits"]) == 1 else "알림"
-        publish(topic, f"노량진 {a['label']} {what}", a["text"] + f" ({a['date']})", tags, click)
+        link = species_link(click, a["key"])
+        publish(topic, f"노량진 {a['label']} {what}", a["text"] + f" ({a['date']})", tags, link)
     if len(fresh) > MAX_MESSAGES:
         rest = fresh[MAX_MESSAGES:]
         publish(topic, f"노량진 알림 {len(rest)}건 더", "\n".join(a["text"] for a in rest), ["fish"], click)

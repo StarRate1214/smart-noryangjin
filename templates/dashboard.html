@@ -174,6 +174,9 @@
   .fired li.up { border-left-color: #E03131; }
   .fired li.down { border-left-color: #1C7ED6; }
   .fired .none { color: var(--muted); border-left-color: var(--mint); }
+  .fired li.link { cursor: pointer; }
+  .fired li.link:hover, .fired li.link:focus-visible { background: #eef5f4; outline: none; }
+  .fired .go { display: block; margin-top: 4px; font-size: .8rem; font-weight: 700; color: var(--navy); }
   .steps { margin: 6px 0 0; padding-left: 20px; font-size: .9rem; line-height: 1.6; }
   code { background: var(--cream); padding: 1px 5px; border-radius: 4px; font-size: .85em; word-break: break-all; }
   .alert-auto { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
@@ -631,15 +634,36 @@ if (!load("nr.seriesRef", false)) {
   save("nr.seriesRef", true);
 }
 
-function openSpecies(species, kind) {
-  if (!available.includes(species)) return;
-  view.species = species; view.state = "활"; view.sizes.clear(); view.origins.clear();
+function openSpecies(species, kind, state = "활") {
+  if (!available.includes(species)) return false;
+  view.species = species; view.state = state; view.sizes.clear(); view.origins.clear();
   // 자연산/양식 등 구분이 있는 행이면 그 구분에 해당하는 산지만 고른다
-  if (kind) ALL.forEach((r) => { if (r.species === species && r.kind === kind && r.state === "활") view.origins.set(r.origin, "in"); });
+  if (kind) ALL.forEach((r) => { if (r.species === species && r.kind === kind && (!state || r.state === state)) view.origins.set(r.origin, "in"); });
   save("nr.species", species);
+  save("nr.state", state);
   showView("price");
   window.scrollTo({ top: 0, behavior: "smooth" });
+  return true;
 }
+
+// 알림 키('농어#자연산|활')로 그 어종의 시세 차트를 연다
+function openAlertKey(key) {
+  const [target, state] = key.split("|");
+  const [species, kind = ""] = target.split("#");
+  return openSpecies(species, kind, state);
+}
+
+// 주소의 #price?species=농어&state=활&kind=자연산 (ntfy 알림을 눌렀을 때 들어오는 주소)
+function openFromHash() {
+  const m = location.hash.match(/^#price\?(.*)$/);
+  if (!m) return false;
+  const q = new URLSearchParams(m[1]);
+  const opened = openSpecies(q.get("species") || "", q.get("kind") || "", q.get("state") ?? "활");
+  // 주소를 지워 새로 고침해도 마지막에 고른 어종이 유지되게 한다
+  history.replaceState(null, "", location.pathname + location.search);
+  return opened;
+}
+window.addEventListener("hashchange", openFromHash);
 
 function baseRows() {
   const since = shiftDate(LATEST, -(view.range - 1));
@@ -1469,7 +1493,20 @@ function renderFired() {
   document.getElementById("firedTitle").textContent = info.date ? `최근 알림 (${md(info.date)} 거래 기준)` : "최근 알림";
   box.replaceChildren();
   if (info.error) box.append(el("li", { class: "up" }, `${info.error}. 아래에서 규칙을 다시 저장하세요.`));
-  (info.fired || []).forEach((a) => box.append(el("li", { class: a.up ? "up" : "down" }, a.text)));
+  (info.fired || []).forEach((a) => {
+    const li = el("li", { class: (a.up ? "up" : "down") + (a.key ? " link" : "") }, a.text);
+    if (a.key) {
+      // 누르면 그 어종의 시세 차트로 간다
+      li.setAttribute("role", "link");
+      li.tabIndex = 0;
+      li.title = "눌러서 시세 차트 보기";
+      li.append(el("span", { class: "go" }, "시세 보기 ›"));
+      const go = () => openAlertKey(a.key);
+      li.addEventListener("click", go);
+      li.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    }
+    box.append(li);
+  });
   if (!info.error && !(info.fired || []).length) box.append(el("li", { class: "none" }, "저장된 규칙과 자동 감시에 걸린 알림이 없습니다."));
 }
 
@@ -1610,7 +1647,7 @@ document.getElementById("footer").innerHTML =
     : '<a href="https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130">노량진수산물도매시장 어종별 경락시세</a>');
 renderWeek();
 renderAlerts();
-showView(["price", "alert"].includes(load("nr.view", "week")) ? load("nr.view", "week") : "week");
+if (!openFromHash()) showView(["price", "alert"].includes(load("nr.view", "week")) ? load("nr.view", "week") : "week");
 </script>
 </body>
 </html>

@@ -33,5 +33,9 @@
   "auto:any|참돔#양식|활|volume",
   "auto:any|참돔#자연산|활|avg",
   "auto:any|참숭어|활|volume"
+ ],
+ "2026-11-07": [
+  "auto:any|감숭어|활|avg",
+  "auto:any|농어#양식|활|avg"
  ]
 }

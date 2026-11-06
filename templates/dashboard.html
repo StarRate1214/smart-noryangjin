@@ -1585,7 +1585,7 @@ const HELP = {
       <li>GitHub 저장소 <b>Settings</b> → 왼쪽 메뉴 아래쪽 <b>Security</b>의 <b>Secrets and variables</b> → <b>Actions</b> → <b>New repository secret</b>을 누릅니다.</li>
       <li><b>Name</b>에 <code>NTFY_TOPIC</code>, <b>Secret</b>에 2번의 주제 이름을 그대로 넣고 <b>Add secret</b>.</li>
     </ol>
-    <div class="tip">이제 매일 수집(06:45 KST, 실제 시작은 조금 늦을 수 있음) 뒤 새 알림이 옵니다. 같은 날 같은 알림은 한 번만 갑니다. 알림을 누르면 이 대시보드가 열립니다.</div>`],
+    <div class="tip">이제 매일 수집(05:00·10:00·17:00 KST, 실제 시작은 조금 늦을 수 있음) 뒤 새 알림이 옵니다. 같은 날 같은 알림은 한 번만 갑니다. 알림을 누르면 이 대시보드가 열립니다.</div>`],
   auto: ["자동 감시는 어떻게 판단하나요", `
     <p>목적은 <b>물량이 몰려 경매가가 떨어지는 날</b>, 즉 사기 좋은 날을 알려 주는 것입니다. 값이 오르는 날은 기본으로 알리지 않습니다.</p>
     <ul>
@@ -1642,7 +1642,7 @@ document.addEventListener("click", (e) => {
 /* ------------------------------------------------------------------ 시작 */
 document.getElementById("notice").hidden = !DATA.sample;
 document.getElementById("footer").innerHTML =
-  `마지막 갱신: ${DATA.updated} (KST) · 매일 06:45 자동 수집 · 출처: ` +
+  `마지막 갱신: ${DATA.updated} (KST) · 매일 05·10·17시 자동 수집 · 출처: ` +
   (DATA.sample ? "샘플 데이터"
     : '<a href="https://www.susansijang.co.kr/nsis/miw/ko/info/miw3130">노량진수산물도매시장 어종별 경락시세</a>');
 renderWeek();

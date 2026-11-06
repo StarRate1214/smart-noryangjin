@@ -41,8 +41,9 @@ NO_TRADE_FILE = ROOT / "data" / "no_trade.txt"
 # 날짜별로 원본을 언제 받았는지(KST). 경매 집계가 끝나기 전에 받은 원본을 알아보고 다시 받는 데 쓴다.
 FETCH_LOG = ROOT / "data" / "fetched.json"
 # 그날 경매 결과가 다 올라왔다고 보는 시각(KST). 2026-11-05 02:30 에 받은 원본은 300행으로 하루치(540~570행)의
-# 절반이었다. 이 시각 전에 받은 그날 원본은 '집계 전'으로 보고 다음 실행이 다시 받는다.
-COMPLETE_HOUR = 6
+# 절반이었다. 이 시각 전에 받은 그날 원본은 '집계 전'으로 보고 다음 실행이 다시 받으며, 알림도 보내지 않는다.
+# 첫 정기 수집 시각(05:00)에 맞춘다. 늦게 올라온 경락분은 10시·17시 수집이 다시 받아 채운다.
+COMPLETE_HOUR = 5
 DEBUG_DIR = ROOT / "debug"
 TEMPLATE_FILE = ROOT / "templates" / "dashboard.html"
 OUTPUT_FILE = ROOT / "index.html"

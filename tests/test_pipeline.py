@@ -128,7 +128,7 @@ def test_collect_live_without_refresh_skips_recent_dates_already_saved(daily_dir
     day = lambda n: FROZEN_TODAY - datetime.timedelta(days=n)  # noqa: E731
     for n in (2, 0):
         write_daily(daily_dir, day(n))
-    # 오늘 원본은 경매 집계 뒤(06시 이후)에 받은 것
+    # 오늘 원본은 경매 집계 뒤(05시 이후)에 받은 것
     pipeline.FETCH_LOG.write_text(json.dumps({day(0).isoformat(): f"{day(0)}T07:00"}), encoding="utf-8")
     calls = []
     monkeypatch.setattr(pipeline, "fetch_live", calls.extend)
@@ -295,3 +295,10 @@ def test_fetch_records_time(daily_dir, monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.noryangjin, "fetch_day", lambda session, species, date: BANGEO)
     pipeline.fetch_live([FROZEN_TODAY])
     assert FROZEN_TODAY.isoformat() in pipeline.fetch_log()
+
+
+@pytest.mark.parametrize("fetched, partial", [("04:30", True), ("05:00", False), ("10:05", False)])
+def test_day_counts_as_complete_from_05_kst(daily_dir, fetched, partial):
+    write_daily(daily_dir, FROZEN_TODAY)
+    pipeline.FETCH_LOG.write_text(json.dumps({FROZEN_TODAY.isoformat(): f"{FROZEN_TODAY}T{fetched}"}), encoding="utf-8")
+    assert pipeline.is_partial(FROZEN_TODAY) is partial

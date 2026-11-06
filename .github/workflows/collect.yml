@@ -44,6 +44,10 @@ jobs:
     # 국내 PC 를 self-hosted runner 로 붙였다면 저장소 변수 UPDATE_RUNNER 에 그 라벨을 넣는다.
     runs-on: ${{ vars.UPDATE_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
+    # 수집과 커밋은 한 번에 하나씩 돈다(예약 실행, 수동 실행, 재시도가 겹쳐도 push 가 엉키지 않게)
+    concurrency:
+      group: update-dashboard
+      cancel-in-progress: false
     outputs:
       collected: ${{ steps.collect.outcome == 'success' }}
     steps:

@@ -69,5 +69,13 @@
   "auto:any|줄돔#국산|활|avg",
   "auto:any|참돔#자연산|활|avg",
   "rmw27bkdh|왕게||volume"
+ ],
+ "2026-11-12": [
+  "auto:any|감숭어|활|avg",
+  "auto:any|넙치#자연산|활|avg",
+  "auto:any|농어#자연산|활|avg",
+  "auto:any|능성어|활|avg",
+  "auto:any|자바리|활|avg",
+  "auto:any|참숭어|활|volume"
  ]
 }

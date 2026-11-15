@@ -107,5 +107,12 @@
   "auto:any|참숭어|활|avg",
   "auto:any|참숭어|활|volume",
   "rmw27bkdh|왕게||volume"
+ ],
+ "2026-11-16": [
+  "auto:any|감성돔#국산|활|avg",
+  "auto:any|감성돔#수입|활|avg",
+  "auto:any|능성어|활|avg",
+  "auto:any|부시리|활|avg",
+  "rmw27bkdh|왕게||avg"
  ]
 }

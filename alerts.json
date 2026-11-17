@@ -1,12 +1,14 @@
 {
   "auto": {
     "enabled": true,
-    "mode": "any",
+    "mode": "price",
     "window": 5,
     "off": [
       "보리새우"
     ],
-    "extra": [],
+    "extra": [
+      "왕게"
+    ],
     "volume": {
       "ratio": 1.5,
       "min_kg": 300,
@@ -18,31 +20,5 @@
       "strength": 0
     }
   },
-  "rules": [
-    {
-      "id": "rmw27bkdh",
-      "enabled": true,
-      "species": "왕게",
-      "state": "",
-      "match": "any",
-      "conditions": [
-        {
-          "metric": "volume",
-          "type": "change",
-          "base_days": 5,
-          "direction": "up",
-          "unit": "pct",
-          "value": 25
-        },
-        {
-          "metric": "avg",
-          "type": "change",
-          "base_days": 5,
-          "direction": "down",
-          "unit": "pct",
-          "value": 15
-        }
-      ]
-    }
-  ]
+  "rules": []
 }

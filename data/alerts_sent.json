@@ -118,5 +118,15 @@
   "auto:any|점성어|활|avg",
   "auto:any|찰넙치|활|avg",
   "rmw27bkdh|왕게||avg"
+ ],
+ "2026-11-17": [
+  "auto:any|감숭어|활|volume",
+  "auto:any|넙치#양식|활|volume",
+  "auto:any|넙치#자연산|활|volume",
+  "auto:any|능성어|활|avg",
+  "auto:any|민어|활|avg",
+  "auto:any|붉바리|활|avg",
+  "auto:any|우럭|활|avg",
+  "rmw27bkdh|왕게||avg"
  ]
 }

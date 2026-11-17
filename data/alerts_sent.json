@@ -128,5 +128,15 @@
   "auto:any|붉바리|활|avg",
   "auto:any|우럭|활|avg",
   "rmw27bkdh|왕게||avg"
+ ],
+ "2026-11-18": [
+  "auto:price|넙치#자연산|활|avg",
+  "auto:price|도다리|활|avg",
+  "auto:price|방어#수입|활|avg",
+  "auto:price|우럭|활|avg",
+  "auto:price|자바리|활|avg",
+  "auto:price|잿방어|활|avg",
+  "auto:price|점성어|활|avg",
+  "auto:price|줄돔#국산|활|avg"
  ]
 }

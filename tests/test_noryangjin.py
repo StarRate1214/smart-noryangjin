@@ -119,22 +119,53 @@ def test_session_sends_browser_headers(monkeypatch):
     assert "Referer" not in session.headers  # 화면은 주소창에서 바로 연 것처럼 연다
 
 
-def test_download_posts_the_page_form(monkeypatch):
-    sent = {}
+SEARCH_PAGE = """<form id="dlmSearchCommand"><input type="hidden" id="excelToken" name="excelToken"
+ value="b18b1d8a-ad40-4554-bf3f-e8177308fac0" /></form>"""
+
+
+def fake_site(monkeypatch, search_html=SEARCH_PAGE):
+    sent = []
 
     class Resp(FakeResponse):
-        content = b"x"
+        def __init__(self, url):
+            self.content = b"x"
+            self.text = search_html if url == noryangjin.PAGE_URL else ""
 
     def fake_post(self, url, data, headers, timeout):
-        sent.update(url=url, data=data, headers=headers)
-        return Resp()
+        sent.append({"url": url, "data": data, "headers": headers})
+        return Resp(url)
 
     monkeypatch.setattr(noryangjin.requests.Session, "post", fake_post)
+    return sent
+
+
+def test_download_searches_first_then_posts_the_form_with_its_excel_token(monkeypatch):
+    sent = fake_site(monkeypatch)
     noryangjin.download(noryangjin.requests.Session(), "", datetime.date(2026, 10, 21))
-    assert sent["url"] == noryangjin.EXCEL_URL
-    assert sent["data"] == {
+    form = {
         "pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "", "kdfshCode": "",
         "searchStartDe": "2026.10.21", "searchEndDe": "2026.10.21",
     }
-    assert sent["headers"]["Referer"] == noryangjin.PAGE_URL
-    assert sent["headers"]["Origin"] == "https://www.susansijang.co.kr"
+    # 화면처럼 [조회] 다음 [엑셀]: 조회 결과의 일회용 토큰을 붙인다
+    assert [r["url"] for r in sent] == [noryangjin.PAGE_URL, noryangjin.EXCEL_URL]
+    assert sent[0]["data"] == form
+    assert sent[1]["data"] == {**form, "excelToken": "b18b1d8a-ad40-4554-bf3f-e8177308fac0"}
+    for r in sent:
+        assert r["headers"]["Referer"] == noryangjin.PAGE_URL
+        assert r["headers"]["Origin"] == "https://www.susansijang.co.kr"
+
+
+def test_download_without_token_still_posts_the_form(monkeypatch):
+    sent = fake_site(monkeypatch, search_html="<html>no token</html>")
+    noryangjin.download(noryangjin.requests.Session(), "방어", datetime.date(2026, 10, 21))
+    assert "excelToken" not in sent[1]["data"]
+
+
+@pytest.mark.parametrize("html, token", [
+    (SEARCH_PAGE, "b18b1d8a-ad40-4554-bf3f-e8177308fac0"),
+    ("<input value='abc' name='excelToken' id='excelToken'>", "abc"),
+    ("<input id=\"other\" value=\"x\">", ""),
+    ("", ""),
+])
+def test_excel_token(html, token):
+    assert noryangjin.excel_token(html) == token

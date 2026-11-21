@@ -18,25 +18,28 @@ jobs:
       - name: probe
         run: |
           python - <<'EOF2'
-          import re, time, noryangjin
-          def text(h):
-              h = re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", h)
-              return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h)).strip()
+          import re, time, io, noryangjin
           s = noryangjin.new_session(retries=2)
-          r0 = s.get(noryangjin.PAGE_URL, timeout=30)
-          page = r0.text
-          print("PAGE", r0.status_code, r0.url, len(page), "cookies", list(s.cookies.get_dict()))
-          print("PAGE TEXT:", text(page)[:600])
-          for key in ("excelBtn').click", "fnInputValidate()", 'id="dlmSearchCommand"', "kdfshCode", "searchStartDe"):
-              i = page.find(key)
-              print("##", key, i, page[max(0,i-100):i+700].replace("\n"," ")[:800] if i >= 0 else "")
-          form = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "방어", "kdfshCode": "방어",
-                  "searchStartDe": "2026.11.18", "searchEndDe": "2026.11.18"}
-          r = s.post(noryangjin.EXCEL_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
-          print("EXCEL", r.status_code, r.url, len(r.content), "history", [h.status_code for h in r.history])
-          print("EXCEL TEXT:", text(r.text)[:1500])
-          r2 = s.post(noryangjin.PAGE_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
-          print("LIST", r2.status_code, r2.url, len(r2.content))
-          t = text(r2.text); i = t.find("낙찰")
-          print("LIST TEXT:", t[max(0,i-300):i+1200])
+          page = s.get(noryangjin.PAGE_URL, timeout=30).text
+          print("TOKEN in GET page:", re.findall(r"<input[^>]*excelToken[^>]*>", page))
+          for species in ("", "방어"):
+              form = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": species, "kdfshCode": species,
+                      "searchStartDe": "2026.11.18", "searchEndDe": "2026.11.18"}
+              lst = s.post(noryangjin.PAGE_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60).text
+              tags = re.findall(r"<input[^>]*excelToken[^>]*>", lst)
+              print("====", repr(species), "list len", len(lst), "token tags", tags)
+              m = re.search(r'id="excelToken"[^>]*value="([^"]*)"', lst) or re.search(r'value="([^"]*)"[^>]*id="excelToken"', lst)
+              tok = m.group(1) if m else ""
+              i = lst.find("물량"); print("  summary:", re.sub(r"<[^>]+>|\s+", " ", lst[i:i+200]))
+              time.sleep(2)
+              r = s.post(noryangjin.EXCEL_URL, data={**form, "excelToken": tok}, headers=noryangjin.POST_HEADERS, timeout=60)
+              print("  excel", r.status_code, r.headers.get("Content-Type"), r.headers.get("Content-Disposition"), len(r.content), r.content[:8])
+              try:
+                  t = noryangjin.parse_table(r.content); print("  rows", len(t), list(t.columns)[:9])
+              except Exception as e:
+                  print("  parse error", e)
+              time.sleep(2)
+              r = s.post(noryangjin.EXCEL_URL, data={**form, "excelToken": tok}, headers=noryangjin.POST_HEADERS, timeout=60)
+              print("  reuse same token ->", len(r.content), r.content[:8])
+              time.sleep(2)
           EOF2

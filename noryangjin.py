@@ -5,6 +5,7 @@
     form: kdfshNm, kdfshCode(어종명), searchStartDe, searchEndDe(YYYY.MM.DD), pageIndex/pageUnit/pageSize
 응답 표에는 어종((활)방어 식), 산지, 규격(1미 등), 포장(kg, S/P 등), 수량, 중량, 낙찰고가, 낙찰저가, 평균가 열이 있다.
 
+엑셀 요청 전에 같은 폼으로 화면 [조회]를 해 일회용 excelToken 을 받아 붙인다(2026-11-19 무렵 사이트 변경).
 응답은 진짜 .xls/.xlsx 이거나 확장자만 xls 인 HTML 표일 수 있어 둘 다 처리한다.
 """
 
@@ -87,9 +88,22 @@ def download(session, species, date):
         "searchStartDe": day,
         "searchEndDe": day,
     }
-    response = session.post(EXCEL_URL, data=form, headers=POST_HEADERS, timeout=60)
+    # 2026-11-19 무렵부터 엑셀 요청에 일회용 excelToken 이 필요하다. 화면에서처럼 먼저 [조회](같은 폼을 화면 주소로
+    # POST)를 해 결과 화면의 excelToken 을 받고, 그 값을 붙여 엑셀을 요청한다. 토큰은 한 번 쓰면 다시 쓸 수 없다.
+    search = session.post(PAGE_URL, data=form, headers=POST_HEADERS, timeout=60)
+    search.raise_for_status()
+    token = excel_token(search.text)
+    response = session.post(EXCEL_URL, data={**form, "excelToken": token} if token else form,
+                            headers=POST_HEADERS, timeout=60)
     response.raise_for_status()
     return response.content
+
+
+def excel_token(html):
+    """조회 결과 화면의 <input id="excelToken" value="..."> 값. 없으면 ''."""
+    tag = re.search(r"<input[^>]*\bid=[\"']excelToken[\"'][^>]*>", html or "")
+    value = re.search(r"\bvalue=[\"']([^\"']*)[\"']", tag.group(0)) if tag else None
+    return value.group(1) if value else ""
 
 
 def _find_header(df):

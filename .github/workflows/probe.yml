@@ -1,0 +1,40 @@
+name: Probe market site
+on:
+  push:
+    branches: [claude/peaceful-newton-wcwt3x]
+    paths: [.github/workflows/probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r requirements.txt
+      - name: probe
+        run: |
+          python - <<'EOF2'
+          import time, re, noryangjin
+          s = noryangjin.new_session(retries=2)
+          page = s.get(noryangjin.PAGE_URL, timeout=30).text
+          print("PAGE len", len(page))
+          for m in re.finditer(r"(excelBtn|fnInputValidate|kdfsh|action=|/excel/|searchStartDe|csrf|token)", page):
+              pass
+          i = page.find("excelBtn").__index__() if "excelBtn" in page else -1
+          print(page[page.find("$('#excelBtn')"):page.find("$('#excelBtn')")+900] if "$('#excelBtn')" in page else "NO excelBtn handler")
+          print("---- form")
+          f = page.find('<form id="dlmSearchCommand"')
+          print(page[f:f+2500] if f >= 0 else "NO FORM")
+          for species in ("", "방어"):
+              for d in ("2026.11.20", "2026.11.18"):
+                  form = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": species, "kdfshCode": species,
+                          "searchStartDe": d, "searchEndDe": d}
+                  r = s.post(noryangjin.EXCEL_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
+                  print("====", repr(species), d, r.status_code, r.headers.get("Content-Type"), r.headers.get("Content-Disposition"), len(r.content))
+                  print(r.content[:1500].decode("utf-8", "replace"))
+                  time.sleep(2)
+          EOF2

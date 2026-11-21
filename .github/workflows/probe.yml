@@ -18,23 +18,25 @@ jobs:
       - name: probe
         run: |
           python - <<'EOF2'
-          import time, re, noryangjin
+          import re, time, noryangjin
+          def text(h):
+              h = re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", h)
+              return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h)).strip()
           s = noryangjin.new_session(retries=2)
-          page = s.get(noryangjin.PAGE_URL, timeout=30).text
-          print("PAGE len", len(page))
-          for m in re.finditer(r"(excelBtn|fnInputValidate|kdfsh|action=|/excel/|searchStartDe|csrf|token)", page):
-              pass
-          i = page.find("excelBtn").__index__() if "excelBtn" in page else -1
-          print(page[page.find("$('#excelBtn')"):page.find("$('#excelBtn')")+900] if "$('#excelBtn')" in page else "NO excelBtn handler")
-          print("---- form")
-          f = page.find('<form id="dlmSearchCommand"')
-          print(page[f:f+2500] if f >= 0 else "NO FORM")
-          for species in ("", "방어"):
-              for d in ("2026.11.20", "2026.11.18"):
-                  form = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": species, "kdfshCode": species,
-                          "searchStartDe": d, "searchEndDe": d}
-                  r = s.post(noryangjin.EXCEL_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
-                  print("====", repr(species), d, r.status_code, r.headers.get("Content-Type"), r.headers.get("Content-Disposition"), len(r.content))
-                  print(r.content[:1500].decode("utf-8", "replace"))
-                  time.sleep(2)
+          r0 = s.get(noryangjin.PAGE_URL, timeout=30)
+          page = r0.text
+          print("PAGE", r0.status_code, r0.url, len(page), "cookies", list(s.cookies.get_dict()))
+          print("PAGE TEXT:", text(page)[:600])
+          for key in ("excelBtn').click", "fnInputValidate()", 'id="dlmSearchCommand"', "kdfshCode", "searchStartDe"):
+              i = page.find(key)
+              print("##", key, i, page[max(0,i-100):i+700].replace("\n"," ")[:800] if i >= 0 else "")
+          form = {"pageIndex": 1, "pageUnit": 10, "pageSize": 10, "kdfshNm": "방어", "kdfshCode": "방어",
+                  "searchStartDe": "2026.11.18", "searchEndDe": "2026.11.18"}
+          r = s.post(noryangjin.EXCEL_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
+          print("EXCEL", r.status_code, r.url, len(r.content), "history", [h.status_code for h in r.history])
+          print("EXCEL TEXT:", text(r.text)[:1500])
+          r2 = s.post(noryangjin.PAGE_URL, data=form, headers=noryangjin.POST_HEADERS, timeout=60)
+          print("LIST", r2.status_code, r2.url, len(r2.content))
+          t = text(r2.text); i = t.find("낙찰")
+          print("LIST TEXT:", t[max(0,i-300):i+1200])
           EOF2

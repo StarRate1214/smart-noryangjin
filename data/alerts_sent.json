@@ -103,5 +103,10 @@
  "2026-11-21": [
   "auto:price|감성돔#수입|활|avg",
   "auto:price|넙치#자연산|활|avg"
+ ],
+ "2026-11-23": [
+  "auto:price|감숭어|활|avg",
+  "auto:price|줄돔#국산|활|avg",
+  "auto:price|참숭어|활|avg"
  ]
 }

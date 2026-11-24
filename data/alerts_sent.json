@@ -1,15 +1,4 @@
 {
- "2026-11-09": [
-  "auto:any|감숭어|활|avg",
-  "auto:any|농어#자연산|활|volume",
-  "auto:any|도다리|활|avg",
-  "auto:any|자바리|활|avg",
-  "auto:any|줄돔#국산|활|avg",
-  "auto:any|줄돔#수입|활|avg",
-  "auto:any|참돔#양식|활|volume",
-  "auto:any|참숭어|활|volume",
-  "rmw27bkdh|왕게||avg"
- ],
  "2026-11-10": [
   "auto:any|방어#국산|활|volume",
   "auto:any|우럭|활|avg",
@@ -109,5 +98,11 @@
   "auto:price|줄돔#국산|활|avg",
   "auto:price|줄돔#수입|활|avg",
   "auto:price|참숭어|활|avg"
+ ],
+ "2026-11-24": [
+  "auto:price|감성돔#국산|활|avg",
+  "auto:price|방어#수입|활|avg",
+  "auto:price|부시리|활|avg",
+  "auto:price|자바리|활|avg"
  ]
 }

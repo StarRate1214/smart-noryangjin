@@ -106,7 +106,13 @@
   .toggle:has(input:checked) { border-color: var(--sky); }
   .toggle:has(input:not(:checked)) { color: var(--muted); }
   .hint { font-size: .78rem; color: var(--muted); margin: 4px 0 0; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  /* 넓은 화면: 위 줄에 기본 카드 3개, 아래 줄에 가격 수준(평균가·고가) 카드 2개 */
+  @media (min-width: 900px) {
+    .cards { grid-template-columns: repeat(6, 1fr); }
+    .cards .card { grid-column: span 2; }
+    .cards #levelCard, .cards #levelHighCard { grid-column: span 3; }
+  }
   .card { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--sky);
           border-radius: 12px; padding: 14px 16px; }
   .card:first-child { border-top-color: var(--navy); }
@@ -296,7 +302,7 @@
       <p class="hint">★를 누르면 즐겨찾는 어종이 맨 앞에 옵니다(이 브라우저에만 저장). 산지·규격 칩은 한 번 누르면 포함, 한 번 더 누르면 제외(취소선), 세 번째에 해제됩니다. 숫자는 최근 거래 건수입니다. 가격은 kg 단위 거래 기준이고, 평균가는 거래 수량으로 가중한 값입니다. '표시'의 선택박스로 그래프 항목을 켜고 끌 수 있습니다.
         가성비 구간은 평균가(수량 가중)에서 고가까지의 60~80% 지점입니다. 너무 싼 물건은 원물 상태가 나쁘므로 평균가보다 위, 고가 가까이에 두며, 저가선 아래로는 내려가지 않습니다.
         '작년 같은 시기'는 1년 전 같은 날짜(없으면 앞뒤 3일 안의 가장 가까운 거래일)의 평균가이고, '직전 3개월 평균'은 최근 거래일 앞 3개월의 수량 가중 평균가입니다.
-        두 비교선과 '가격 수준' 카드는 어종과 상태(활어·선어)만 맞춰 계산하며, 산지·규격 필터는 적용하지 않습니다.
+        두 비교선과 '가격 수준' 카드(평균가·고가)는 어종과 상태(활어·선어)만 맞춰 계산하며, 산지·규격 필터는 적용하지 않습니다.
         그래프는 위의 버튼이나 (PC에서) 가로로 드래그해 확대하고, 더블클릭하면 전체 보기로 돌아갑니다.</p>
     </div>
 
@@ -306,6 +312,8 @@
       <div class="card"><div class="label" id="avgLabel">최고가 평균</div><div class="value" id="avgHigh">-</div><div class="detail" id="avgDetail"></div></div>
       <div class="card" id="levelCard"><div class="label" id="levelLabel">가격 수준 (평균가)</div><div class="value" id="levelValue">-</div>
         <div class="gauge" id="gauge" hidden></div><div class="detail" id="levelDetail"></div></div>
+      <div class="card" id="levelHighCard"><div class="label" id="levelHighLabel">가격 수준 (고가)</div><div class="value" id="levelHighValue">-</div>
+        <div class="gauge" id="gaugeHigh" hidden></div><div class="detail" id="levelHighDetail"></div></div>
     </div>
 
     <div class="panel">
@@ -855,15 +863,17 @@ function refDays(species, state) {
   Object.entries(REF.series).forEach(([key, list]) => {
     const [s, st] = key.split("|");
     if (s !== species || (state && st !== state)) return;
-    list.forEach(([i, avg, , , q]) => {
-      if (avg === null || !q) return;
+    list.forEach(([i, avg, high, , q]) => {
+      if ((avg === null || !q) && high === null) return;
       const date = REF.dates[i];
-      const d = byDate.get(date) || { date, pq: 0, q: 0 };
-      d.pq += avg * q; d.q += q;
+      const d = byDate.get(date) || { date, pq: 0, q: 0, high: null };
+      if (avg !== null && q) { d.pq += avg * q; d.q += q; }
+      if (high !== null) d.high = d.high === null ? high : Math.max(d.high, high);  // 고가는 상태를 합쳐도 최댓값
       byDate.set(date, d);
     });
   });
-  return [...byDate.values()].map((d) => Object.assign(d, { avg: d.pq / d.q })).sort((a, b) => a.date.localeCompare(b.date));
+  return [...byDate.values()].map((d) => Object.assign(d, { avg: d.q ? d.pq / d.q : null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 const weighted = (days) => {
@@ -871,16 +881,20 @@ const weighted = (days) => {
   return q ? days.reduce((s, d) => s + d.pq, 0) / q : null;
 };
 
-// 최근 거래일의 평균가를 작년 같은 달, 직전 3개월과 견준다
-function referenceStats() {
-  const days = refDays(view.species, view.state);
+const plainMean = (days, key) => (days.length ? days.reduce((s, d) => s + d[key], 0) / days.length : null);
+
+// 최근 거래일의 평균가(metric "avg") 또는 고가("high")를 작년 같은 달, 직전 3개월과 견준다.
+// 평균가 기준값은 기간 전체의 수량 가중 평균, 고가 기준값은 일별 최고가의 평균이다.
+function referenceStats(metric = "avg") {
+  const days = refDays(view.species, view.state).filter((d) => d[metric] !== null && d[metric] !== undefined);
   const cur = [...days].reverse().find((d) => d.date <= LATEST);
   if (!cur) return null;
   const from = addMonths(cur.date, -DATA.refMonths);
   const recent = days.filter((d) => d.date >= from && d.date < cur.date);
   const month = addMonths(cur.date, -12).slice(0, 7);
   const lastYear = days.filter((d) => d.date.startsWith(month));
-  return { days, cur, recent, lastYear, month, m3: weighted(recent), ly: weighted(lastYear) };
+  const base = metric === "avg" ? weighted : (list) => plainMean(list, "high");
+  return { days, cur, recent, lastYear, month, metric, value: cur[metric], m3: base(recent), ly: base(lastYear) };
 }
 
 // 차트 날짜마다 1년 전 같은 날짜의 평균가. 그날 거래가 없으면 앞뒤 3일 안의 가장 가까운 거래일을 쓴다
@@ -966,7 +980,7 @@ function renderChart(days) {
   });
   const showVolume = on("volume");
   const volumes = days.map((d) => Math.round(d.volume));
-  const stats = referenceStats();
+  const stats = referenceStats("avg");
   const ago = yearAgoSeries(days, stats ? stats.days : []);
   const yoy = ago.map((r) => (r ? Math.round(r.avg) : null));
   const m3 = days.map(() => (stats && stats.m3 ? Math.round(stats.m3) : null));
@@ -1082,57 +1096,65 @@ function renderCards(days) {
   set("avgDetail", `최저 ${won(Math.min(...highs))} · 최고 ${won(Math.max(...highs))} · 경락량 ${fmt(days.reduce((s, d) => s + d.volume, 0))}kg`);
 }
 
-// 가격 수준 카드: 최근 평균가가 작년 같은 달과 직전 3개월에 비해 어느 정도인지 보여 준다
-function renderLevel() {
+// 가격 수준 카드: 최근 평균가(또는 고가)가 작년 같은 달과 직전 3개월에 비해 어느 정도인지 보여 준다.
+// ids: 카드 안 요소 id 의 앞부분과 게이지 id
+const LEVEL_CARDS = [
+  { metric: "avg", name: "평균가", label: "levelLabel", value: "levelValue", detail: "levelDetail", gauge: "gauge" },
+  { metric: "high", name: "고가", label: "levelHighLabel", value: "levelHighValue", detail: "levelHighDetail", gauge: "gaugeHigh" },
+];
+
+function renderLevel({ metric, name, label, value: valueId, detail, gauge: gaugeId }) {
   const set = (id, text) => { document.getElementById(id).textContent = text; };
-  const gauge = document.getElementById("gauge");
-  const value = document.getElementById("levelValue");
-  const stats = referenceStats();
+  const gauge = document.getElementById(gaugeId);
+  const value = document.getElementById(valueId);
+  const stats = referenceStats(metric);
   gauge.hidden = true;
   gauge.replaceChildren();
   if (!stats || (stats.ly === null && stats.m3 === null)) {
-    set("levelLabel", "가격 수준 (평균가)");
+    set(label, `가격 수준 (${name})`);
     value.textContent = "-";
-    set("levelDetail", stats ? "견줄 작년 같은 달·직전 3개월 거래가 없습니다" : "평균가 기록이 없습니다");
+    set(detail, stats ? "견줄 작년 같은 달·직전 3개월 거래가 없습니다" : `${name} 기록이 없습니다`);
     return;
   }
   const { cur, ly, m3, lastYear, recent, month } = stats;
+  const now = stats.value;
   const [y, m] = month.split("-").map(Number);
   const lyName = `작년 ${m}월`;
-  const change = (base) => (base ? cur.avg / base - 1 : null);
+  const change = (base) => (base ? now / base - 1 : null);
   const signed = (r) => `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(Math.round(r * 100))}%`;
-  set("levelLabel", `가격 수준 (${md(cur.date)} 평균가 ${won(cur.avg)})`);
+  set(label, `가격 수준 (${md(cur.date)} ${name} ${won(now)})`);
   value.replaceChildren();
-  [[ly, lyName], [m3, `직전 ${DATA.refMonths}개월`]].forEach(([base, name]) => {
+  [[ly, lyName], [m3, `직전 ${DATA.refMonths}개월`]].forEach(([base, baseName]) => {
     const r = change(base);
     if (r === null) return;
-    const line = el("div", { class: "cmp" }, `${name} 대비 `);
+    const line = el("div", { class: "cmp" }, `${baseName} 대비 `);
     line.append(el("span", { class: r > 0.005 ? "up" : r < -0.005 ? "down" : "" }, signed(r)));
     value.append(line);
   });
-  // 작년 같은 달 일별 평균가 가운데 지금보다 싼 날의 비율
-  const below = lastYear.filter((d) => d.avg < cur.avg).length;
-  set("levelDetail", [
-    ly !== null ? `${y}년 ${m}월 평균 ${won(ly)} (${lastYear.length}일, 그 달 일별 평균가의 ${Math.round((below / lastYear.length) * 100)}%보다 높음)` : `${lyName} 거래 없음`,
-    m3 !== null ? `직전 ${DATA.refMonths}개월 평균 ${won(m3)} (${recent.length}일)` : "",
+  // 작년 같은 달 일별 값 가운데 지금보다 낮은 날의 비율
+  const below = lastYear.filter((d) => d[metric] < now).length;
+  const what = metric === "avg" ? "평균" : "고가 평균";
+  set(detail, [
+    ly !== null ? `${y}년 ${m}월 ${what} ${won(ly)} (${lastYear.length}일, 그 달 일별 ${name}의 ${Math.round((below / lastYear.length) * 100)}%보다 높음)` : `${lyName} 거래 없음`,
+    m3 !== null ? `직전 ${DATA.refMonths}개월 ${what} ${won(m3)} (${recent.length}일)` : "",
   ].filter(Boolean).join(" · "));
 
-  // 게이지 범위: 두 기준 기간의 일별 평균가와 지금 값 전체
-  const values = [...lastYear, ...recent].map((d) => d.avg).concat(cur.avg);
+  // 게이지 범위: 두 기준 기간의 일별 값과 지금 값 전체
+  const values = [...lastYear, ...recent].map((d) => d[metric]).concat(now);
   const lo = Math.min(...values), hi = Math.max(...values);
   const pos = (v) => (hi > lo ? ((v - lo) / (hi - lo)) * 100 : 50);
   gauge.append(el("div", { class: "track" }));
   if (ly !== null) {
-    const mark = el("div", { class: "mark ly", style: `left:${pos(ly)}%`, title: `${lyName} 평균 ${won(ly)}` });
+    const mark = el("div", { class: "mark ly", style: `left:${pos(ly)}%`, title: `${lyName} ${what} ${won(ly)}` });
     mark.append(el("span", {}, lyName));
     gauge.append(mark);
   }
   if (m3 !== null) {
-    const mark = el("div", { class: "mark m3", style: `left:${pos(m3)}%`, title: `직전 ${DATA.refMonths}개월 평균 ${won(m3)}` });
+    const mark = el("div", { class: "mark m3", style: `left:${pos(m3)}%`, title: `직전 ${DATA.refMonths}개월 ${what} ${won(m3)}` });
     mark.append(el("span", {}, `${DATA.refMonths}개월`));
     gauge.append(mark);
   }
-  gauge.append(el("div", { class: "now", style: `left:${pos(cur.avg)}%`, title: `${md(cur.date)} 평균가 ${won(cur.avg)}` }));
+  gauge.append(el("div", { class: "now", style: `left:${pos(now)}%`, title: `${md(cur.date)} ${name} ${won(now)}` }));
   const ends = el("div", { class: "ends" });
   ends.append(el("span", {}, won(lo)), el("span", {}, won(hi)));
   gauge.append(ends);
@@ -1153,7 +1175,7 @@ function updatePrice() {
     `${latest.getFullYear()}년 ${latest.getMonth() + 1}월 ${where}${speciesLabel(view.species)} 시세${without}`;
   document.getElementById("chartSub").textContent = `${stateLabel} · 낙찰 고가·평균가·저가(원/kg)와 경락량(kg)`;
   renderCards(days);
-  renderLevel();
+  LEVEL_CARDS.forEach(renderLevel);
   view.xr = null;  // 어종·필터·기간이 바뀌면 전체 보기로 돌아간다
   renderChart(days);
 }

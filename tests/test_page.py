@@ -639,3 +639,17 @@ def test_fired_alert_item_opens_species_chart(browser, site, tmp_path):
     assert pg.is_visible("#view-price")
     assert pg.locator("#species .chip[aria-pressed=true]").first.get_attribute("data-species") == "넙치"
     context.close()
+
+
+
+def test_level_cards_compare_average_and_high(page, site):
+    page.click("#tab-price")
+    if site["kind"] != "sample":
+        return  # 실제 원본은 작년 자료가 없는 어종일 수 있다
+    for value_id, gauge_id, label_id, name in (("#levelValue", "#gauge", "#levelLabel", "평균가"),
+                                               ("#levelHighValue", "#gaugeHigh", "#levelHighLabel", "고가")):
+        assert name in page.inner_text(label_id)
+        text = page.inner_text(value_id)
+        assert "작년" in text and "직전 3개월 대비" in text and re.search(r"[+−±]\d+%", text)
+        assert page.locator(gauge_id).is_visible()
+    assert "고가 평균" in page.inner_text("#levelHighDetail")

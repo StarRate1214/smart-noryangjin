@@ -1,14 +1,4 @@
 {
- "2026-11-12": [
-  "auto:any|감숭어|활|avg",
-  "auto:any|넙치#자연산|활|avg",
-  "auto:any|농어#자연산|활|avg",
-  "auto:any|능성어|활|avg",
-  "auto:any|방어#국산|활|volume",
-  "auto:any|자바리|활|avg",
-  "auto:any|점성어|활|volume",
-  "auto:any|참숭어|활|volume"
- ],
  "2026-11-13": [
   "auto:any|감성돔#수입|활|avg",
   "auto:any|감숭어|활|avg",
@@ -105,6 +95,12 @@
   "auto:price|붉바리|활|avg",
   "auto:price|잿방어|활|avg",
   "auto:price|찰넙치|활|avg",
+  "auto:price|참돔#자연산|활|avg"
+ ],
+ "2026-11-27": [
+  "auto:price|도다리|활|avg",
+  "auto:price|우럭|활|avg",
+  "auto:price|줄돔#국산|활|avg",
   "auto:price|참돔#자연산|활|avg"
  ]
 }
